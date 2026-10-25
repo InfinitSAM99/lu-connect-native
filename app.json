@@ -40,7 +40,18 @@
       "expo-sharing",
       "expo-notifications",
       "expo-image-picker",
-      "expo-document-picker"
+      "expo-document-picker",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableProguardInReleaseBuilds": false,
+            "enableShrinkResourcesInReleaseBuilds": false,
+            "extraProguardRules": "-keep class expo.modules.av.** { *; }"
+          }
+        }
+      ],
+      "expo-asset"
     ],
     "experiments": {
       "reactCompiler": true
