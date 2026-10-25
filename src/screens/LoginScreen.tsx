@@ -1,184 +1,211 @@
 import React, { useState } from 'react';
-import {
-  View, Text, TextInput, Pressable, StyleSheet, ActivityIndicator,
-  KeyboardAvoidingView, Platform, ScrollView, Modal
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import Svg, { Rect, Path } from 'react-native-svg';
+import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
+import BottomSheet from '../components/BottomSheet';
+import FastButton from '../components/FastButton';
 
-function LuLogo({ size = 120 }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 200 200">
-      <Rect x="14" y="14" width="172" height="172" rx="34" stroke="#ef4444" strokeWidth="5" fill="none" />
-      <Path d="M 62 60 L 62 130 L 96 130" stroke="#fff" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-      <Path d="M 112 60 L 112 112 A 18 18 0 0 0 148 112 L 148 60" stroke="#fff" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-    </Svg>
-  );
-}
+// --- Icons ---
+const MailIcon = () => (
+  <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="#6d7382" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <Rect x="2" y="4" width="20" height="16" rx="3" />
+    <Path d="m2 7 10 6 10-6" />
+  </Svg>
+);
+const LockIcon = () => (
+  <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="#6d7382" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <Rect x="3" y="11" width="18" height="11" rx="2" />
+    <Path d="M7 11V7a5 5 0 0 1 10 0v4" />
+  </Svg>
+);
 
-function BottomSheet({ visible, onClose, children }) {
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.sheetOverlay} onPress={onClose} />
-      <View style={styles.sheetContainer}>
-        <View style={styles.sheetHandle} />
-        <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>{children}</ScrollView>
-      </View>
-    </Modal>
-  );
-}
-
-function Field({ placeholder, value, onChangeText, secureTextEntry, keyboardType, autoCapitalize }) {
+function Field({ icon, ...props }: any) {
   return (
     <View style={styles.fieldContainer}>
-      <TextInput
-        style={styles.fieldInput}
-        placeholder={placeholder}
-        placeholderTextColor="#6d7382"
-        value={value}
-        onChangeText={onChangeText}
-        secureTextEntry={secureTextEntry}
-        keyboardType={keyboardType}
-        autoCapitalize={autoCapitalize}
-      />
+      <View style={styles.fieldIcon}>{icon}</View>
+      <TextInput {...props} style={styles.fieldInput} placeholderTextColor="#6d7382" autoCapitalize="none" />
     </View>
   );
 }
 
 export default function LoginScreen({ navigation }: any) {
+  const { signIn, signUp } = useAuth();
+  const insets = useSafeAreaInsets();
   const [sheet, setSheet] = useState<'signin' | 'register' | null>(null);
+  const closeSheet = () => setSheet(null);
 
-  // Login State
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [err, setErr] = useState('');
-  const [loading, setLoading] = useState(false);
+  // Sign In State
+  const [signInEmail, setSignInEmail] = useState('');
+  const [signInPass, setSignInPass] = useState('');
+  const [signInErr, setSignInErr] = useState('');
+  const [signInLoading, setSignInLoading] = useState(false);
 
   // Register State
-  const [reg, setReg] = useState({ fullName: '', username: '', admissionNumber: '', email: '', password: '' });
+  const [reg, setReg] = useState({ fullName: '', username: '', admissionNumber: '', email: '', password: '', university: '', university_id: '' });
   const [regErr, setRegErr] = useState('');
   const [regMsg, setRegMsg] = useState('');
   const [regLoading, setRegLoading] = useState(false);
 
   const handleSignIn = async () => {
-    setErr('');
-    setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
-    if (error) setErr(error.message);
+    setSignInErr(''); setSignInLoading(true);
+    try {
+      const { data, error } = await signIn(signInEmail, signInPass);
+      if (error) { setSignInLoading(false); return setSignInErr(error.message); }
+      const uid = data?.user?.id;
+      if (!uid) { setSignInLoading(false); return setSignInErr('Sign in failed.'); }
+      const { data: prof } = await supabase.from('profiles').select('approval_status').eq('id', uid).single();
+      setSignInLoading(false);
+      const status = prof?.approval_status || 'pending';
+      if (status === 'approved') return navigation.navigate('Feed');
+      if (status === 'rejected') return navigation.navigate('Rejected');
+      return navigation.navigate('Pending');
+    } catch (e: any) {
+      setSignInLoading(false); setSignInErr(e.message);
+    }
   };
 
   const handleRegister = async () => {
     setRegErr(''); setRegMsg('');
+    if (!reg.university) return setRegErr('Please select your university');
     setRegLoading(true);
-    const { error } = await supabase.auth.signUp({
-      email: reg.email,
-      password: reg.password,
-      options: { data: { full_name: reg.fullName, username: reg.username, admission_number: reg.admissionNumber } },
-    });
-    setRegLoading(false);
-    if (error) setRegErr(error.message);
-    else {
-      setRegMsg('Check your email to verify your account.');
-      setTimeout(() => { setSheet('signin'); setRegMsg(''); }, 3500);
+    try {
+      const { error } = await signUp(reg.email, reg.password, reg.fullName, reg.username, reg.admissionNumber, reg.university, reg.university_id);
+      setRegLoading(false);
+      if (error) return setRegErr(error.message);
+      setRegMsg('Account created! Check your email to verify, then wait for admin approval.');
+      setTimeout(() => { closeSheet(); setSheet('signin'); }, 3500);
+    } catch (e: any) {
+      setRegLoading(false); setRegErr(e.message);
     }
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.logoSection}>
-        <LuLogo size={120} />
-        <Text style={styles.title}>LU CONNECT</Text>
-        <Text style={styles.subtitle}>Connect with your university community</Text>
-      </View>
+    <View style={styles.container}>
+      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+        <View style={styles.header}>
+          <Svg viewBox="0 0 200 200" width={120} height={120}>
+            <Rect x="14" y="14" width="172" height="172" rx="34" fill="none" stroke="#ef4444" strokeWidth={5} />
+            <Path d="M 62 60 L 62 130 L 96 130" fill="none" stroke="#ffffff" strokeWidth={8} strokeLinecap="round" strokeLinejoin="round" />
+            <Path d="M 112 60 L 112 112 A 18 18 0 0 0 148 112 L 148 60" fill="none" stroke="#ffffff" strokeWidth={8} strokeLinecap="round" strokeLinejoin="round" />
+          </Svg>
+          <Text style={styles.title}>LU CONNECT</Text>
+          <Text style={styles.subtitle}>Connect with your university community</Text>
+        </View>
 
-      <View style={styles.buttonGroup}>
-        <Pressable style={styles.primaryButton} onPress={() => setSheet('signin')}>
-          <Text style={styles.primaryButtonText}>Sign in</Text>
-        </Pressable>
-        <Pressable style={styles.secondaryButton} onPress={() => setSheet('register')}>
-          <Text style={styles.secondaryButtonText}>Create account</Text>
-        </Pressable>
-        <Text style={styles.signature}>by Samuel Mugasia</Text>
-      </View>
+        <View style={styles.actions}>
+          <FastButton style={styles.primaryBtn} onPress={() => setSheet('signin')}>
+            <Text style={styles.primaryBtnText}>Sign in</Text>
+          </FastButton>
+          <FastButton style={styles.secondaryBtn} onPress={() => setSheet('register')}>
+            <Text style={styles.secondaryBtnText}>Create account</Text>
+          </FastButton>
+          <Text style={styles.credit}>by Samuel Mugasia</Text>
+        </View>
+      </ScrollView>
 
       {/* SIGN IN SHEET */}
-      <BottomSheet visible={sheet === 'signin'} onClose={() => setSheet(null)}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <BottomSheet open={sheet === 'signin'} onClose={closeSheet} maxHeight="90vh">
+        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20 }}>
           <Text style={styles.sheetTitle}>Welcome back</Text>
           <Text style={styles.sheetSubtitle}>Sign in to continue</Text>
 
-          {err ? <Text style={styles.errorText}>{err}</Text> : null}
+          {signInErr ? <View style={styles.errBox}><Text style={styles.errText}>{signInErr}</Text></View> : null}
 
           <Text style={styles.label}>Email</Text>
-          <Field placeholder="you@university.edu" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
+          <Field icon={<MailIcon />} keyboardType="email-address" value={signInEmail} onChangeText={setSignInEmail} placeholder="you@university.edu" />
 
-          <Text style={styles.label}>Password</Text>
-          <Field placeholder="Your password" value={password} onChangeText={setPassword} secureTextEntry />
+          <Text style={[styles.label, { marginTop: 14 }]}>Password</Text>
+          <Field icon={<LockIcon />} secureTextEntry value={signInPass} onChangeText={setSignInPass} placeholder="Your password" />
 
-          <Pressable onPress={() => { setSheet(null); navigation.navigate('ForgotPassword'); }} style={{ alignSelf: 'flex-end', marginBottom: 20 }}>
-            <Text style={{ color: '#ef4444', fontSize: 13, fontWeight: '600' }}>Forgot password?</Text>
-          </Pressable>
+          <FastButton style={[styles.primaryBtn, { marginTop: 24 }]} onPress={handleSignIn} disabled={signInLoading}>
+            <Text style={styles.primaryBtnText}>{signInLoading ? 'Signing in…' : 'Sign in'}</Text>
+          </FastButton>
 
-          <Pressable style={styles.primaryButton} onPress={handleSignIn} disabled={loading}>
-            {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryButtonText}>Sign in</Text>}
-          </Pressable>
-        </KeyboardAvoidingView>
+          <View style={{ flexDirection: 'row', justifyContent: 'center', marginTop: 18 }}>
+            <Text style={{ fontSize: 13, color: '#6d7382' }}>New here? </Text>
+            <TouchableOpacity onPress={() => setSheet('register')}>
+              <Text style={{ fontSize: 13, color: '#ef4444', fontWeight: '600' }}>Create account</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
       </BottomSheet>
 
       {/* REGISTER SHEET */}
-      <BottomSheet visible={sheet === 'register'} onClose={() => setSheet(null)}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <BottomSheet open={sheet === 'register'} onClose={closeSheet} maxHeight="92vh">
+        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20 }}>
           <Text style={styles.sheetTitle}>Join LU CONNECT</Text>
           <Text style={styles.sheetSubtitle}>Create your student account</Text>
 
-          {regErr ? <Text style={styles.errorText}>{regErr}</Text> : null}
-          {regMsg ? <Text style={styles.successText}>{regMsg}</Text> : null}
+          {regErr ? <View style={styles.errBox}><Text style={styles.errText}>{regErr}</Text></View> : null}
+          {regMsg ? <View style={styles.msgBox}><Text style={styles.msgText}>{regMsg}</Text></View> : null}
 
           <Text style={styles.label}>Full Name</Text>
-          <Field placeholder="Your full name" value={reg.fullName} onChangeText={(t: string) => setReg({...reg, fullName: t})} />
-          
-          <Text style={styles.label}>Username</Text>
-          <Field placeholder="Choose a username" value={reg.username} onChangeText={(t: string) => setReg({...reg, username: t})} autoCapitalize="none" />
-          
-          <Text style={styles.label}>Admission Number</Text>
-          <Field placeholder="Your admission number" value={reg.admissionNumber} onChangeText={(t: string) => setReg({...reg, admissionNumber: t})} />
-          
-          <Text style={styles.label}>Email</Text>
-          <Field placeholder="you@university.edu" value={reg.email} onChangeText={(t: string) => setReg({...reg, email: t})} keyboardType="email-address" autoCapitalize="none" />
-          
-          <Text style={styles.label}>Password</Text>
-          <Field placeholder="Min 6 characters" value={reg.password} onChangeText={(t: string) => setReg({...reg, password: t})} secureTextEntry />
+          <TextInput style={styles.input} value={reg.fullName} onChangeText={(v) => setReg({ ...reg, fullName: v })} placeholder="Your full name" placeholderTextColor="#6d7382" />
 
-          <Pressable style={styles.primaryButton} onPress={handleRegister} disabled={regLoading}>
-            {regLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryButtonText}>Create account</Text>}
-          </Pressable>
-        </KeyboardAvoidingView>
+          <Text style={[styles.label, { marginTop: 12 }]}>Username</Text>
+          <TextInput style={styles.input} value={reg.username} onChangeText={(v) => setReg({ ...reg, username: v })} placeholder="Choose a username" placeholderTextColor="#6d7382" autoCapitalize="none" />
+
+          <Text style={[styles.label, { marginTop: 12 }]}>Admission / Registration Number</Text>
+          <TextInput style={styles.input} value={reg.admissionNumber} onChangeText={(v) => setReg({ ...reg, admissionNumber: v })} placeholder="Your admission number" placeholderTextColor="#6d7382" />
+
+          <Text style={[styles.label, { marginTop: 12 }]}>University</Text>
+          <FastButton 
+            style={styles.fieldContainer} 
+            onPress={() => navigation.navigate('UniversityPicker', { onSelect: (name: string, id: string) => setReg({ ...reg, university: name, university_id: id }) })}
+          >
+            <View style={styles.fieldIcon}><Ionicons name="school" size={20} color="#6d7382" /></View>
+            <Text style={{ flex: 1, color: reg.university ? '#fff' : '#6d7382', fontSize: 15, paddingVertical: 14 }}>{reg.university || 'Choose your university'}</Text>
+            <Ionicons name="chevron-forward" size={18} color="#6d7382" />
+          </FastButton>
+
+          <Text style={[styles.label, { marginTop: 12 }]}>Email</Text>
+          <TextInput style={styles.input} keyboardType="email-address" value={reg.email} onChangeText={(v) => setReg({ ...reg, email: v })} placeholder="you@university.edu" placeholderTextColor="#6d7382" autoCapitalize="none" />
+
+          <Text style={[styles.label, { marginTop: 12 }]}>Password</Text>
+          <TextInput style={styles.input} secureTextEntry value={reg.password} onChangeText={(v) => setReg({ ...reg, password: v })} placeholder="Min 6 characters" placeholderTextColor="#6d7382" />
+
+          <FastButton style={[styles.primaryBtn, { marginTop: 24 }]} onPress={handleRegister} disabled={regLoading}>
+            <Text style={styles.primaryBtnText}>{regLoading ? 'Creating account…' : 'Create account'}</Text>
+          </FastButton>
+
+          <View style={{ flexDirection: 'row', justifyContent: 'center', marginTop: 18 }}>
+            <Text style={{ fontSize: 13, color: '#6d7382' }}>Have an account? </Text>
+            <TouchableOpacity onPress={() => setSheet('signin')}>
+              <Text style={{ fontSize: 13, color: '#ef4444', fontWeight: '600' }}>Sign in</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
       </BottomSheet>
-    </SafeAreaView>
+
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000', justifyContent: 'center', paddingHorizontal: 24 },
-  logoSection: { alignItems: 'center', marginBottom: 48 },
-  title: { fontSize: 26, fontWeight: '700', color: '#fff', marginTop: 18 },
-  subtitle: { fontSize: 13, color: '#6d7382', textAlign: 'center', marginTop: 8, maxWidth: 280 },
-  buttonGroup: { gap: 14 },
-  primaryButton: { backgroundColor: '#ef4444', borderRadius: 16, paddingVertical: 16, alignItems: 'center' },
-  primaryButtonText: { color: '#fff', fontSize: 15, fontWeight: '600' },
-  secondaryButton: { borderWidth: 1.5, borderColor: '#262626', borderRadius: 16, paddingVertical: 16, alignItems: 'center' },
-  secondaryButtonText: { color: '#fff', fontSize: 15, fontWeight: '500' },
-  signature: { fontSize: 12, color: '#6d7382', textAlign: 'center', marginTop: 22 },
-  sheetOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)' },
-  sheetContainer: { backgroundColor: '#141414', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 20, paddingTop: 12, maxHeight: '90%' },
-  sheetHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#262626', alignSelf: 'center', marginBottom: 16 },
+  container: { flex: 1, backgroundColor: '#000' },
+  scrollContent: { flexGrow: 1, justifyContent: 'center', padding: 24 },
+  header: { alignItems: 'center', marginBottom: 48 },
+  title: { fontSize: 26, fontWeight: '700', color: '#fff', letterSpacing: 0.5, marginTop: 18 },
+  subtitle: { fontSize: 13, color: '#6d7382', textAlign: 'center', maxWidth: 280, marginTop: 8, lineHeight: 20 },
+  actions: { width: '100%', maxWidth: 380, alignSelf: 'center', gap: 14 },
+  primaryBtn: { backgroundColor: '#ef4444', borderRadius: 16, padding: 16, alignItems: 'center' },
+  primaryBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  secondaryBtn: { backgroundColor: 'transparent', borderWidth: 1.5, borderColor: '#1f1f1f', borderRadius: 16, padding: 16, alignItems: 'center' },
+  secondaryBtnText: { color: '#fff', fontSize: 15, fontWeight: '500' },
+  credit: { fontSize: 12, color: '#6d7382', textAlign: 'center', marginTop: 22, letterSpacing: 0.4 },
+  
   sheetTitle: { fontSize: 20, fontWeight: '700', color: '#fff', textAlign: 'center', marginBottom: 6 },
   sheetSubtitle: { fontSize: 13, color: '#6d7382', textAlign: 'center', marginBottom: 24 },
-  label: { fontSize: 12, color: '#6d7382', marginBottom: 6, marginLeft: 4 },
-  fieldContainer: { backgroundColor: '#0a0a0a', borderColor: '#262626', borderWidth: 1, borderRadius: 16, paddingHorizontal: 14, marginBottom: 14 },
-  fieldInput: { color: '#fff', fontSize: 15, paddingVertical: 14 },
-  errorText: { backgroundColor: 'rgba(239,68,68,0.14)', color: '#ef4444', padding: 12, borderRadius: 12, fontSize: 13, marginBottom: 14 },
-  successText: { backgroundColor: 'rgba(34,197,94,0.14)', color: '#22c55e', padding: 12, borderRadius: 12, fontSize: 13, marginBottom: 14 },
+  label: { fontSize: 12, fontWeight: '500', color: '#6d7382', marginBottom: 6, marginLeft: 4 },
+  fieldContainer: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#141414', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 4 },
+  fieldIcon: { color: '#6d7382' },
+  fieldInput: { flex: 1, color: '#fff', fontSize: 15, paddingVertical: 14 },
+  input: { backgroundColor: '#141414', borderRadius: 12, padding: 14, color: '#fff', fontSize: 15 },
+  errBox: { backgroundColor: 'rgba(239,68,68,0.14)', padding: 12, borderRadius: 12, marginBottom: 14 },
+  errText: { color: '#ef4444', fontSize: 13, lineHeight: 18 },
+  msgBox: { backgroundColor: 'rgba(34,197,94,0.14)', padding: 12, borderRadius: 12, marginBottom: 14 },
+  msgText: { color: '#22c55e', fontSize: 13, lineHeight: 18 },
 });

@@ -16,5 +16,14 @@
     "**/*.tsx",
     ".expo/types/**/*.ts",
     "expo-env.d.ts"
+  ],
+  "exclude": [
+    "dist",
+    "build",
+    "web-build",
+    ".expo",
+    "node_modules",
+    "android",
+    "ios"
   ]
 }
