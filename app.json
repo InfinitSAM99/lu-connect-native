@@ -19,7 +19,8 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.infinitsam.luconnectnative",
-      "softwareKeyboardLayoutMode": "resize"
+      "softwareKeyboardLayoutMode": "resize",
+      "newArchEnabled": false
     },
     "web": {
       "favicon": "./assets/images/favicon.png"
