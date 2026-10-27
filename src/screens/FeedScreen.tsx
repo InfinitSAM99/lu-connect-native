@@ -1,11 +1,14 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, ActivityIndicator, RefreshControl, Alert, TouchableOpacity, Modal, Keyboard, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, FlatList, ActivityIndicator, RefreshControl, Alert, TouchableOpacity, Modal, Keyboard, ScrollView , Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import UniversityPickerScreen from './UniversityPickerScreen';
 import PostComposer from '../components/PostComposer';
+import QuickAlertBubbles from '../components/QuickAlertBubbles';
 import PostCard from '../components/PostCard';
 import CommentDrawer from '../components/CommentDrawer';
 import LULogo from '../components/LULogo';
@@ -70,13 +73,20 @@ async function fetchFeedData(myId: string, universityId: string | 'all' | 'mine'
     postsQuery = postsQuery.eq('university_id', universityId);
   }
 
-  const [postsRes, connectionsRes, boostsRes] = await Promise.all([
+  const [postsRes, connectionsRes, boostsRes, hiddenRes] = await Promise.all([
     postsQuery,
     supabase.from('connections').select('requester_id, receiver_id').eq('status', 'accepted').or(`requester_id.eq.${myId},receiver_id.eq.${myId}`),
     supabase.from('boosts').select('post_id, expires_at').eq('status', 'active'),
+    supabase.from('hidden_posts').select('post_id').eq('user_id', myId),
   ]);
 
-  const rawPosts = Array.isArray(postsRes.data) ? postsRes.data : [];
+  const hiddenIds = new Set((hiddenRes.data || []).map((h: any) => h.post_id));
+  let rawPosts = Array.isArray(postsRes.data) ? postsRes.data.filter((p: any) => !hiddenIds.has(p.id)) : [];
+  // Shuffle to avoid newest posts always dominating the pool
+  for (let i = rawPosts.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [rawPosts[i], rawPosts[j]] = [rawPosts[j], rawPosts[i]];
+  }
 
   const friendIds = new Set((connectionsRes.data || []).map((c: any) => c.requester_id === myId ? c.receiver_id : c.requester_id));
   const now = Date.now();
@@ -86,16 +96,25 @@ async function fetchFeedData(myId: string, universityId: string | 'all' | 'mine'
 
   const scoredPosts = enriched.map((p: any) => {
     let score = 0;
-    if (boostedIds.has(p.id)) score += 1000;
-    if (friendIds.has(p.author_id)) score += 60;
-    if (residence && p.profiles?.residence && p.profiles.residence.toLowerCase().includes(residence.toLowerCase())) score += 50;
+    
+    // Boosted posts always win
+    if (boostedIds.has(p.id)) score += 5000;
+    
+    // Friends and residence
+    if (friendIds.has(p.author_id)) score += 200;
+    if (residence && p.profiles?.residence && p.profiles.residence.toLowerCase().includes(residence.toLowerCase())) score += 150;
+
+    // Freshness
     const ageHrs = (now - new Date(p.created_at).getTime()) / 3_600_000;
-    if (ageHrs < 6) score += 30;
-    else if (ageHrs < 24) score += 15;
-    else if (ageHrs < 72) score += 5;
-    score += Math.min(60, (p.like_count || 0) * 2);
-    score += Math.min(60, (p.comment_count || 0) * 4);
-    score += Math.floor(Math.random() * 50);
+    if (ageHrs < 1) score += 300;
+    else if (ageHrs < 6) score += 150;
+    else if (ageHrs < 24) score += 80;
+    else if (ageHrs < 72) score += 20;
+    else score -= Math.min(500, ageHrs);
+
+    // Pure randomness (likes/comments no longer affect the score)
+    score += Math.floor(Math.random() * 1000);
+
     return { ...p, _score: score };
   });
 
@@ -112,6 +131,7 @@ export default function FeedScreen({ navigation, route }: any) {
   const [activePost, setActivePost] = useState<any>(null);
   const [menuPost, setMenuPost] = useState<any>(null);
   const [composerOpen, setComposerOpen] = useState(false);
+  const [stickyPostId, setStickyPostId] = useState<string | null>(null);
   const [initialAnonymous, setInitialAnonymous] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [visibleCount, setVisibleCount] = useState(15);
@@ -119,6 +139,7 @@ export default function FeedScreen({ navigation, route }: any) {
   // filterUniversity can be 'mine', 'all', or a UUID
   const [filterUniversity, setFilterUniversity] = useState<string>('mine');
   const [filterLabel, setFilterLabel] = useState<string>('My University');
+  const [showUniModal, setShowUniModal] = useState(false);
   // Handle navigation params from Menu (e.g., Confessions -> open composer anonymously)
   useEffect(() => {
     if (route?.params?.openComposer) {
@@ -136,14 +157,92 @@ export default function FeedScreen({ navigation, route }: any) {
   }, []);
 
   const feedQuery = useQuery({
-    queryKey: ['feed', myId, filterUniversity], // Re-fetch when filter changes
+    queryKey: ['feed', myId, filterUniversity],
     enabled: !!myId,
-    staleTime: 60000,
+    staleTime: 0,
+    gcTime: 0,
+    placeholderData: undefined,
     queryFn: () => fetchFeedData(myId!, filterUniversity, profile?.university_id, profile?.residence),
   });
 
+  // Reset pagination whenever the filter changes
+  useEffect(() => {
+    setVisibleCount(15);
+  }, [filterUniversity]);
+
+  // Fetch events (show all, including past ones, so the section is never empty)
+  const eventsQuery = useQuery({
+    queryKey: ['events-horizontal'],
+    enabled: !!myId,
+    staleTime: 30000,
+    queryFn: async () => {
+      const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+      const { data } = await supabase
+        .from('events')
+        .select('id, title, image_url, starts_at, location')
+        .gte('starts_at', threeDaysAgo)
+        .order('starts_at', { ascending: true })
+        .limit(10);
+      return data || [];
+    },
+  });
+
+  // Fetch suggested people (not already friends/connected)
+  const suggestionsQuery = useQuery({
+    queryKey: ['suggestions', myId],
+    enabled: !!myId,
+    staleTime: 60000,
+    queryFn: async () => {
+      // Get existing connections
+      const { data: conns } = await supabase
+        .from('connections')
+        .select('requester_id, receiver_id')
+        .or(`requester_id.eq.${myId},receiver_id.eq.${myId}`);
+      
+      const excludeIds = new Set<string>([myId!]);
+      (conns || []).forEach((c: any) => {
+        excludeIds.add(c.requester_id);
+        excludeIds.add(c.receiver_id);
+      });
+
+      const { data } = await supabase
+        .from('profiles')
+        .select('id, full_name, avatar_url, course, university_name, is_verified')
+        .eq('is_bot', false)
+        .eq('approval_status', 'approved')
+        .neq('id', myId)
+        .limit(30);
+
+      return (data || []).filter((p: any) => !excludeIds.has(p.id)).slice(0, 8);
+    },
+  });
+
+  const { data: leaderboard } = useQuery({
+    queryKey: ['feed-leaderboard'],
+    enabled: !!myId,
+    staleTime: 60000,
+    queryFn: async () => {
+      const { data } = await supabase.from('leaderboard_view').select('*').limit(1);
+      return data?.[0] || null;
+    },
+  });
+  const topWinner = leaderboard;
+
+  const upcomingEvents = eventsQuery.data || [];
+  const suggestions = suggestionsQuery.data || [];
+
+  // Force a fresh fetch every time we return to the feed
+  useFocusEffect(
+    React.useCallback(() => {
+      if (myId) feedQuery.refetch();
+    }, [myId])
+  );
+
   const allPosts = feedQuery.data || [];
-  const posts = allPosts.slice(0, visibleCount);
+  // Keep the just-created post at the top for 5 seconds
+  const stickyPost = stickyPostId ? allPosts.find((p: any) => p.id === stickyPostId) : null;
+  const otherPosts = stickyPostId ? allPosts.filter((p: any) => p.id !== stickyPostId) : allPosts;
+  const posts = (stickyPost ? [stickyPost, ...otherPosts] : otherPosts).slice(0, visibleCount);
   const loading = feedQuery.isLoading;
   const error = feedQuery.error?.message;
 
@@ -155,9 +254,55 @@ export default function FeedScreen({ navigation, route }: any) {
     queryClient.setQueryData(['feed', myId, filterUniversity], (old: any) => Array.isArray(old) ? old.filter((p: any) => p.id !== postId) : old);
   }, [myId, filterUniversity, queryClient]);
 
-  const refreshFeed = () => {
+  const handleNewPost = async () => {
+    setComposerOpen(false);
+    
+    // Wait a moment for the DB to commit the post
+    await new Promise(r => setTimeout(r, 500));
+    
+    // Get the latest post by this user
+    const { data } = await supabase
+      .from('posts')
+      .select('id')
+      .eq('author_id', myId)
+      .eq('is_deleted', false)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (data?.id) {
+      setStickyPostId(data.id);
+
+      // Fetch the full post object so we can inject it immediately
+      const { data: fullPost } = await supabase
+        .from('posts')
+        .select('*, post_media(*)')
+        .eq('id', data.id)
+        .maybeSingle();
+
+      // Inject into the query cache so it renders instantly
+      if (fullPost) {
+        queryClient.setQueryData(['feed', myId, filterUniversity], (old: any) => {
+          if (!Array.isArray(old)) return [fullPost];
+          if (old.some((p: any) => p.id === fullPost.id)) return old;
+          return [fullPost, ...old];
+        });
+      }
+
+      // Unpin after 5 seconds
+      setTimeout(async () => {
+        setStickyPostId(null);
+        await queryClient.invalidateQueries({ queryKey: ['feed', myId, filterUniversity] });
+      }, 5000);
+    } else {
+      await queryClient.invalidateQueries({ queryKey: ['feed', myId, filterUniversity] });
+    }
+  };
+
+  const refreshFeed = async () => {
     setVisibleCount(15);
-    queryClient.invalidateQueries({ queryKey: ['feed', myId, filterUniversity] });
+    await queryClient.invalidateQueries({ queryKey: ['feed', myId, filterUniversity] });
+    await feedQuery.refetch();
   };
 
   const selectMine = () => {
@@ -173,13 +318,7 @@ export default function FeedScreen({ navigation, route }: any) {
   };
 
   const openPicker = () => {
-    navigation.navigate('UniversityPicker', {
-      onSelect: (name: string, id: string) => {
-        setFilterUniversity(id);
-        setFilterLabel(name);
-        setVisibleCount(15);
-      }
-    });
+    setShowUniModal(true);
   };
 
   const handleDelete = (post: any) => {
@@ -206,6 +345,19 @@ export default function FeedScreen({ navigation, route }: any) {
     }
   };
 
+  const hidePost = async (post: any) => {
+    setMenuPost(null);
+    try {
+      await supabase.from('hidden_posts').insert({ user_id: myId, post_id: post.id });
+      // Remove from local cache instantly
+      queryClient.setQueryData(['feed', myId, filterUniversity], (old: any) =>
+        Array.isArray(old) ? old.filter((p: any) => p.id !== post.id) : old
+      );
+    } catch (e: any) {
+      Alert.alert('Error', e.message);
+    }
+  };
+
   const renderPost = useCallback(({ item }: any) => (
     <PostCard
       post={item}
@@ -217,7 +369,7 @@ export default function FeedScreen({ navigation, route }: any) {
   ), [handlePostUpdate, handlePostDelete]);
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#000' }}>
+    <View style={{ flex: 1, backgroundColor: '#000', position: 'relative' }}>
       
       {/* HEADER */}
       <View style={[styles.stickyHeader, { paddingTop: Math.max(insets.top, 12) }]}>
@@ -278,9 +430,64 @@ export default function FeedScreen({ navigation, route }: any) {
           <FastButton onPress={refreshFeed} style={styles.retryBtn}><Text style={styles.retryText}>Retry</Text></FastButton>
         </View>
       ) : (
-        <FlatList
+        
+
+      <FlatList
+
           data={posts}
-          renderItem={renderPost}
+          renderItem={({ item, index }: any) => {
+            const showPeople = index === 2 || index === 10;
+            const showEvents = index === 5 || index === 13;
+            return (
+              <View>
+                {renderPost({ item, index })}
+                {showPeople && (
+                  <View style={{ paddingVertical: 12, borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#1f1f1f', marginVertical: 8 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginBottom: 10 }}>
+                      <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>People to Connect</Text>
+                      <TouchableOpacity onPress={() => navigation.navigate('Connections')}>
+                        <Text style={{ color: '#ef4444', fontSize: 13, fontWeight: '600' }}>See All</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}>
+                      {suggestions.map((person: any) => (
+                        <View key={person.id} style={{ width: 140, backgroundColor: '#0a0a0a', borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: '#1f1f1f' }}>
+                          <Image source={{ uri: person.avatar_url || `https://api.dicebear.com/7.x/initials/svg?seed=${person.full_name}` }} style={{ width: '100%', height: 80 }} />
+                          <View style={{ padding: 10, alignItems: 'center' }}>
+                            <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }} numberOfLines={1}>{person.full_name}</Text>
+                            <TouchableOpacity onPress={() => navigation.navigate('Profile', { id: person.id })} style={{ backgroundColor: '#ef4444', borderRadius: 6, paddingVertical: 6, paddingHorizontal: 12, marginTop: 8, width: '100%', alignItems: 'center' }}>
+                              <Text style={{ color: '#fff', fontSize: 12, fontWeight: '600' }}>Connect</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+                {showEvents && (
+                  <View style={{ paddingVertical: 12, borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#1f1f1f', marginVertical: 8 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginBottom: 10 }}>
+                      <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>Events</Text>
+                      <TouchableOpacity onPress={() => navigation.navigate('Events')}>
+                        <Text style={{ color: '#ef4444', fontSize: 13, fontWeight: '600' }}>See All</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}>
+                      {upcomingEvents.map((e: any) => (
+                        <TouchableOpacity key={e.id} onPress={() => navigation.navigate('EventDetail', { id: e.id })} style={{ width: 200, backgroundColor: '#0a0a0a', borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: '#1f1f1f' }}>
+                          <Image source={{ uri: e.image_url || 'https://via.placeholder.com/200x100' }} style={{ width: '100%', height: 100 }} />
+                          <View style={{ padding: 10 }}>
+                            <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }} numberOfLines={1}>{e.title}</Text>
+                            <Text style={{ color: '#6d7382', fontSize: 12, marginTop: 4 }}>{new Date(e.starts_at).toLocaleDateString()}</Text>
+                          </View>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+              </View>
+            );
+          }}
           keyExtractor={(item: any) => item.id}
           onEndReached={() => {
             if (visibleCount < allPosts.length) setVisibleCount(v => v + 15);
@@ -294,7 +501,15 @@ export default function FeedScreen({ navigation, route }: any) {
             </View>
           }
           contentContainerStyle={{ paddingBottom: 120 + insets.bottom }}
-          refreshControl={<RefreshControl refreshing={loading} onRefresh={refreshFeed} tintColor="#ef4444" />}
+          refreshControl={
+            <RefreshControl
+              refreshing={loading}
+              onRefresh={refreshFeed}
+              tintColor="#ef4444"
+              colors={['#ef4444']}
+              progressBackgroundColor="#0a0a0a"
+            />
+          }
           initialNumToRender={6}
           maxToRenderPerBatch={6}
           windowSize={7}
@@ -314,6 +529,8 @@ export default function FeedScreen({ navigation, route }: any) {
       )}
 
       {/* COMPOSER MODAL */}
+      <QuickAlertBubbles />
+
       <Modal visible={composerOpen} animationType="slide" transparent onRequestClose={() => setComposerOpen(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)', paddingBottom: keyboardHeight }}>
           <View style={{ backgroundColor: '#0a0a0a', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '92%' }}>
@@ -323,7 +540,7 @@ export default function FeedScreen({ navigation, route }: any) {
                 <Ionicons name="close" size={24} color="#fff" />
               </FastButton>
             </View>
-            <PostComposer onPosted={() => { setComposerOpen(false); refreshFeed(); }} onClose={() => setComposerOpen(false)} initialAnonymous={initialAnonymous} />
+            <PostComposer onPosted={handleNewPost} onClose={() => setComposerOpen(false)} initialAnonymous={initialAnonymous} />
           </View>
         </View>
       </Modal>
@@ -336,6 +553,10 @@ export default function FeedScreen({ navigation, route }: any) {
               <FastButton style={styles.menuItem} onPress={() => handleSave(menuPost)}>
                 <Ionicons name="bookmark-outline" size={20} color="#fff" />
                 <Text style={styles.menuText}>{menuPost.saved ? 'Unsave' : 'Save'}</Text>
+              </FastButton>
+              <FastButton style={styles.menuItem} onPress={() => hidePost(menuPost)}>
+                <Ionicons name="eye-off-outline" size={20} color="#6d7382" />
+                <Text style={[styles.menuText, { color: '#6d7382' }]}>I don't want to see this</Text>
               </FastButton>
               {menuPost.author_id === myId && (
                 <>
@@ -357,6 +578,19 @@ export default function FeedScreen({ navigation, route }: any) {
       {activePost && (
         <CommentDrawer post={activePost} onClose={() => setActivePost(null)} />
       )}
+
+      {/* UNIVERSITY PICKER MODAL */}
+      <Modal visible={showUniModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowUniModal(false)}>
+        <UniversityPickerScreen
+          onSelect={(item: any) => {
+            setFilterUniversity(item.id);
+            setFilterLabel(item.name);
+            setVisibleCount(15);
+            setShowUniModal(false);
+          }}
+          onClose={() => setShowUniModal(false)}
+        />
+      </Modal>
     </View>
   );
 }

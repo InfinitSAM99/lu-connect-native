@@ -29,20 +29,29 @@ function seededRand(seed: number, salt: number) {
 }
 
 // --- Fetch pool ---
-async function fetchFeedData(myId: string) {
+async function fetchFeedData(myId: string, universityId?: string | null) {
   const since = new Date(
     Date.now() - FEED_DAYS * 24 * 60 * 60 * 1000
   ).toISOString();
 
+  // Base posts query
+  let postsQuery = supabase
+    .from('posts')
+    .select('*, post_media(*)')
+    .eq('is_deleted', false)
+    .is('shared_post_id', null)
+    .gte('created_at', since)
+    .order('created_at', { ascending: false })
+    .limit(POOL_SIZE);
+
+  // If a university filter is provided, only fetch posts from that university.
+  // Anonymous posts still count (they have university_id set).
+  if (universityId) {
+    postsQuery = postsQuery.eq('university_id', universityId);
+  }
+
   const [postsRes, friendsRes, boostsRes] = await Promise.all([
-    supabase
-      .from('posts')
-      .select('*, post_media(*)')
-      .eq('is_deleted', false)
-      .is('shared_post_id', null)
-      .gte('created_at', since)
-      .order('created_at', { ascending: false })
-      .limit(POOL_SIZE),
+    postsQuery,
     supabase
       .from('connections')
       .select('requester_id, receiver_id')

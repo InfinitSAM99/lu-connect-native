@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator, Modal } from 'react-native';
 import Svg, { Rect, Path } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
+import UniversityPickerScreen from './UniversityPickerScreen';
+import AuthErrorSheet from '../components/AuthErrorSheet';
 import { supabase } from '../lib/supabase';
 import BottomSheet from '../components/BottomSheet';
 import FastButton from '../components/FastButton';
@@ -32,7 +34,7 @@ function Field({ icon, ...props }: any) {
 }
 
 export default function LoginScreen({ navigation }: any) {
-  const { signIn, signUp } = useAuth();
+  const { signIn, signUp , resetPassword , kickoutReason } = useAuth();
   const insets = useSafeAreaInsets();
   const [sheet, setSheet] = useState<'signin' | 'register' | null>(null);
   const closeSheet = () => setSheet(null);
@@ -41,29 +43,88 @@ export default function LoginScreen({ navigation }: any) {
   const [signInEmail, setSignInEmail] = useState('');
   const [signInPass, setSignInPass] = useState('');
   const [signInErr, setSignInErr] = useState('');
+
+  // If the user got kicked out, show a friendly message
+  React.useEffect(() => {
+    if (kickoutReason) setSignInErr(kickoutReason);
+  }, [kickoutReason]);
   const [signInLoading, setSignInLoading] = useState(false);
 
   // Register State
   const [reg, setReg] = useState({ fullName: '', username: '', admissionNumber: '', email: '', password: '', university: '', university_id: '' });
+  const [showUniModal, setShowUniModal] = useState(false);
+  const [authError, setAuthError] = useState<{ visible: boolean; title: string; message: string; showReset: boolean }>({ visible: false, title: '', message: '', showReset: false });
+
+  // Reset the registration form when the sheet is closed
+  React.useEffect(() => {
+    if (sheet !== 'register') {
+      setReg({ fullName: '', username: '', admissionNumber: '', email: '', password: '', university: '', university_id: '' });
+    }
+  }, [sheet]);
+  // Reset register form every time the screen mounts (fresh session)
+  React.useEffect(() => {
+    setReg({ fullName: '', username: '', admissionNumber: '', email: '', password: '', university: '', university_id: '' });
+  }, []);
+
+  // Reset register form every time the screen mounts (fresh session)
+  React.useEffect(() => {
+    setReg({ fullName: '', username: '', admissionNumber: '', email: '', password: '', university: '', university_id: '' });
+  }, []);
+
   const [regErr, setRegErr] = useState('');
   const [regMsg, setRegMsg] = useState('');
   const [regLoading, setRegLoading] = useState(false);
 
   const handleSignIn = async () => {
-    setSignInErr(''); setSignInLoading(true);
+    setSignInErr('');
+    setSignInLoading(true);
     try {
-      const { data, error } = await signIn(signInEmail, signInPass);
-      if (error) { setSignInLoading(false); return setSignInErr(error.message); }
-      const uid = data?.user?.id;
-      if (!uid) { setSignInLoading(false); return setSignInErr('Sign in failed.'); }
-      const { data: prof } = await supabase.from('profiles').select('approval_status').eq('id', uid).single();
-      setSignInLoading(false);
-      const status = prof?.approval_status || 'pending';
-      if (status === 'approved') return navigation.navigate('Feed');
-      if (status === 'rejected') return navigation.navigate('Rejected');
-      return navigation.navigate('Pending');
+      const { error } = await signIn(signInEmail.trim(), signInPass);
+      if (error) {
+        // Parse the Supabase error
+        const msg = error.message || 'Invalid login credentials';
+        let title = 'Login failed';
+        let friendly = 'The email or password you entered is incorrect.';
+        let showReset = true;
+
+        if (msg.toLowerCase().includes('email not confirmed')) {
+          title = 'Email not verified';
+          friendly = 'Please check your inbox and click the verification link we sent you.';
+          showReset = false;
+        } else if (msg.toLowerCase().includes('invalid login credentials')) {
+          title = 'Invalid email or password';
+          friendly = 'Double-check your email and password. If you forgot your password, tap Reset password below.';
+        } else {
+          friendly = msg;
+        }
+
+        setAuthError({ visible: true, title, message: friendly, showReset });
+      }
     } catch (e: any) {
-      setSignInLoading(false); setSignInErr(e.message);
+      setAuthError({
+        visible: true,
+        title: 'Connection error',
+        message: e.message || 'Could not reach the server. Please try again.',
+        showReset: false,
+      });
+    } finally {
+      setSignInLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!signInEmail.trim()) return setSignInErr('Enter your email address first to reset your password.');
+    setSignInLoading(true);
+    setSignInErr('');
+    try {
+      const { error } = await resetPassword(signInEmail.trim());
+      if (error) throw error;
+      setSignInErr('');
+      alert('Password reset link sent to your email. Check your inbox.');
+    } catch (e: any) {
+      setSignInErr(e.message);
+    } finally {
+      setSignInLoading(false);
     }
   };
 
@@ -119,6 +180,9 @@ export default function LoginScreen({ navigation }: any) {
 
           <Text style={[styles.label, { marginTop: 14 }]}>Password</Text>
           <Field icon={<LockIcon />} secureTextEntry value={signInPass} onChangeText={setSignInPass} placeholder="Your password" />
+          <TouchableOpacity onPress={handleForgotPassword} style={{ alignSelf: 'flex-end', marginTop: 10 }}>
+            <Text style={{ color: '#ef4444', fontSize: 13, fontWeight: '600' }}>Forgot password?</Text>
+          </TouchableOpacity>
 
           <FastButton style={[styles.primaryBtn, { marginTop: 24 }]} onPress={handleSignIn} disabled={signInLoading}>
             <Text style={styles.primaryBtnText}>{signInLoading ? 'Signing in…' : 'Sign in'}</Text>
@@ -154,7 +218,7 @@ export default function LoginScreen({ navigation }: any) {
           <Text style={[styles.label, { marginTop: 12 }]}>University</Text>
           <FastButton 
             style={styles.fieldContainer} 
-            onPress={() => navigation.navigate('UniversityPicker', { onSelect: (name: string, id: string) => setReg({ ...reg, university: name, university_id: id }) })}
+            onPress={() => setShowUniModal(true)}
           >
             <View style={styles.fieldIcon}><Ionicons name="school" size={20} color="#6d7382" /></View>
             <Text style={{ flex: 1, color: reg.university ? '#fff' : '#6d7382', fontSize: 15, paddingVertical: 14 }}>{reg.university || 'Choose your university'}</Text>
@@ -180,6 +244,28 @@ export default function LoginScreen({ navigation }: any) {
         </ScrollView>
       </BottomSheet>
 
+      <AuthErrorSheet
+        visible={authError.visible}
+        title={authError.title}
+        message={authError.message}
+        showReset={authError.showReset}
+        onClose={() => setAuthError({ ...authError, visible: false })}
+        onReset={() => {
+          setAuthError({ ...authError, visible: false });
+          setTimeout(() => handleForgotPassword(), 300);
+        }}
+      />
+
+      {/* UNIVERSITY PICKER MODAL */}
+      <Modal visible={showUniModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowUniModal(false)}>
+        <UniversityPickerScreen
+          onSelect={(item: any) => {
+            setReg({ ...reg, university: item.name, university_id: item.id });
+            setShowUniModal(false);
+          }}
+          onClose={() => setShowUniModal(false)}
+        />
+      </Modal>
     </View>
   );
 }

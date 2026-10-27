@@ -13,10 +13,25 @@ const TABS = ['people', 'posts', 'groups', 'events'];
 
 async function runSearch(tab: string, q: string, myId: string) {
   const term = (q || '').trim();
-  if (!term) return [];
+  
+  // If the user hasn't typed anything, only return a default list for the People tab
+  if (!term && tab !== 'people') return [];
 
   if (tab === 'people') {
-    const { data } = await supabase.from('profiles').select('id, full_name, avatar_url, faculty, course, is_verified, is_bot').ilike('full_name', `%${term}%`).neq('id', myId || '00000000-0000-0000-0000-000000000000').limit(30);
+    let req = supabase
+      .from('profiles')
+      .select('id, full_name, avatar_url, faculty, course, is_verified, is_bot')
+      .neq('id', myId || '00000000-0000-0000-0000-000000000000')
+      .eq('is_bot', false)
+      .limit(50);
+      
+    if (term) {
+      req = req.ilike('full_name', `%${term}%`);
+    } else {
+      req = req.order('last_seen', { ascending: false, nullsFirst: false });
+    }
+
+    const { data } = await req;
     return data || [];
   }
   if (tab === 'posts') {
@@ -57,15 +72,15 @@ export default function SearchScreen({ navigation }: any) {
 
   const searchQuery = useQuery({
     queryKey: ['search', tab, debounced, myId],
-    enabled: debounced.length > 0,
+    enabled: debounced.length > 0 || tab === 'people',
     staleTime: 30000,
     queryFn: () => runSearch(tab, debounced, myId),
   });
 
   const results = searchQuery.data || [];
   const loading = searchQuery.isFetching;
-  const showEmpty = !debounced;
-  const showNoResults = debounced && !loading && results.length === 0 && searchQuery.data !== undefined;
+  const showEmpty = !debounced && tab !== 'people' && results.length === 0;
+  const showNoResults = (debounced || tab === 'people') && !loading && results.length === 0 && searchQuery.data !== undefined;
 
   const applyRecent = (entry: any) => {
     setTab(entry.tab);

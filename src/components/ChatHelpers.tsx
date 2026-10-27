@@ -1,9 +1,10 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, TouchableOpacity, Image, StyleSheet, PanResponder, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import * as Clipboard from 'expo-clipboard';
 import { supabase } from '../lib/supabase';
+import { useAudioPlayer } from 'expo-audio';
 
 export const STICKERS = ['😀','😂','🥰','😍','😎','🤩','😭','😅','😊','🙃','😇','🤔','😴','🤗','😘','🥳','👍','👎','👏','🙌','🤝','💪','🙏','✌️','❤️','💔','💯','🔥','⭐','✨','🎉','🎊','🍕','🍔','☕','🍺','⚽','🏀','🎮','🎵','🐶','🐱','🌹','🌈','☀️','🌙','⚡','💧'];
 
@@ -18,10 +19,53 @@ export function DoodleBackground() {
 }
 
 export function VoiceNotePlayer({ url, isMine }: any) {
+  const player = useAudioPlayer(url);
+  const [playing, setPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
+
+  useEffect(() => {
+    if (!player) return;
+    const sub = player.addListener('playbackStatusUpdate', (status: any) => {
+      if (status.isLoaded) {
+        setPlaying(status.playing || false);
+        setDuration(status.duration || 0);
+        setProgress(status.currentTime || 0);
+        if (status.didJustFinish) {
+          setPlaying(false);
+          setProgress(0);
+          player.seekTo(0);
+        }
+      }
+    });
+    return () => { try { sub.remove(); } catch {} };
+  }, [player]);
+
+  const toggle = () => {
+    if (!player) return;
+    if (playing) player.pause();
+    else player.play();
+  };
+
+  const pct = duration > 0 ? Math.min(progress / duration, 1) : 0;
+  const fmt = (s: number) => {
+    if (!isFinite(s) || s < 0) s = 0;
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, '0')}`;
+  };
+
   return (
-    <View style={[styles.voice, { backgroundColor: isMine ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.3)' }]}>
-      <Ionicons name="play" size={18} color="#fff" />
-      <Text style={{ color: '#fff', marginLeft: 8, fontSize: 12 }}>Voice note</Text>
+    <View style={[styles.voice, { backgroundColor: isMine ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.3)', minWidth: 180 }]}>
+      <TouchableOpacity onPress={toggle} style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(0,0,0,0.35)', alignItems: 'center', justifyContent: 'center' }}>
+        <Ionicons name={playing ? 'pause' : 'play'} size={14} color="#fff" />
+      </TouchableOpacity>
+      <View style={{ flex: 1, marginLeft: 10 }}>
+        <View style={{ height: 3, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.25)', overflow: 'hidden' }}>
+          <View style={{ height: 3, width: `${pct * 100}%`, backgroundColor: '#fff' }} />
+        </View>
+        <Text style={{ color: '#fff', fontSize: 11, marginTop: 5 }}>{fmt(progress)} / {fmt(duration)}</Text>
+      </View>
     </View>
   );
 }
@@ -75,7 +119,7 @@ export function SwipeableMessage({ message: m, profile, deleted, isImage, isAudi
   const textColor = themeObj?.text || '#fff';
 
   return (
-    <View style={{ flexDirection: 'row', justifyContent: (m.sender_id === profile?.id) ? 'flex-end' : 'flex-start', marginBottom: 4 }}>
+    <View style={{ flexDirection: 'row', justifyContent: isMine ? 'flex-end' : 'flex-start', marginBottom: 4 }}>
       <Animated.View style={{ maxWidth: '75%', transform: [{ translateX: pan }] }} {...panResponder.panHandlers}>
         <TouchableOpacity activeOpacity={0.9} onLongPress={() => !deleted && setMenuOpen(true)} delayLongPress={400}>
           <View style={[styles.bubble, { backgroundColor: bubbleColor }, isImage && { padding: 0 }]}>

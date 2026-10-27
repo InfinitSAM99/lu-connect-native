@@ -9,12 +9,12 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { playMessageIn, playMessageOut } from '../lib/sounds';
 import { getChatTheme } from '../lib/chatThemes';
-import { SwipeableMessage, GroupMembersList, DoodleBackground, isEmojiOnly } from '../components/ChatHelpers';
+import { SwipeableMessage, GroupMembersList, isEmojiOnly } from '../components/ChatHelpers';
 import ChatThemePicker from '../components/ChatThemePicker';
 import BottomSheet from '../components/BottomSheet';
 import FastButton from '../components/FastButton';
+import { formatDuration } from '../lib/voiceRecorder';
 
-const MAX_IMAGE_MB = 5;
 const MSG_COLS = 'id, conversation_id, sender_id, content, attachment_url, attachment_type, attachment_name, is_deleted, read_at, created_at, parent_id';
 
 function formatLastSeen(lastSeen: string | null) {
@@ -34,7 +34,7 @@ async function loadConversation(conversationId: string, myId: string) {
     supabase.from('conversation_members').select('user_id, theme').eq('conversation_id', conversationId),
   ]);
   if (messagesRes.error) throw new Error(messagesRes.error.message);
-  
+
   const rows = messagesRes.data || [];
   const memberRows = membersRes.data || [];
   const senderIds = [...new Set(rows.map((m: any) => m.sender_id))];
@@ -82,14 +82,14 @@ export default function ConversationScreen({ route, navigation }: any) {
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
   const myId = profile?.id;
-  
+
   const [text, setText] = useState(draft || '');
   const [errMsg, setErrMsg] = useState('');
   const [uploading, setUploading] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
   const [replyingTo, setReplyingTo] = useState<any>(null);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
-  
+
   const [themePickerOpen, setThemePickerOpen] = useState(false);
   const [activeTheme, setActiveTheme] = useState('classic');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -113,8 +113,7 @@ export default function ConversationScreen({ route, navigation }: any) {
     queryFn: () => loadConversation(id, myId!),
   });
   const rawMessages = convQuery.data?.messages || [];
-  // Stable sort by created_at to guarantee order
-  const messages = [...rawMessages].sort((a: any, b: any) => 
+  const messages = [...rawMessages].sort((a: any, b: any) =>
     new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
   );
   const other = convQuery.data?.other || null;
@@ -126,46 +125,53 @@ export default function ConversationScreen({ route, navigation }: any) {
   const loading = convQuery.isLoading;
 
   useEffect(() => { if (convQuery.error) setErrMsg((convQuery.error as any).message); }, [convQuery.error]);
-  
+
   useEffect(() => {
     if (convQuery.data?.myTheme) setActiveTheme(convQuery.data.myTheme);
   }, [convQuery.data?.myTheme]);
 
-  // ✅ FIXED: Realtime subscription with own-message guard
+  // Instantly mark as read when opening the chat
+  useEffect(() => {
+    if (!id || !myId) return;
+    const now = new Date().toISOString();
+    // Update messages
+    supabase.from('messages').update({ read_at: now }).eq('conversation_id', id).neq('sender_id', myId).is('read_at', null).then();
+    // Update membership
+    supabase.from('conversation_members').update({ last_read_at: now }).eq('conversation_id', id).eq('user_id', myId).then();
+    
+    // Tell the list to refresh immediately
+    queryClient.invalidateQueries({ queryKey: ['convs', myId] });
+  }, [id, myId, queryClient]);
+
   useEffect(() => {
     if (!id || !myId) return;
     const ch = supabase.channel(`conv-${id}-${Date.now()}`).on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'messages', filter: `conversation_id=eq.${id}` },
       async (payload: any) => {
-        // Ignore our own INSERTs (already added optimistically)
         if (payload.eventType === 'INSERT') {
           const newRow = payload.new;
           if (newRow.sender_id === myId) return;
-          
           const existing: any = queryClient.getQueryData(queryKey);
           if (!existing) return;
           if (existing.messages?.some((m: any) => m.id === newRow.id)) return;
-          
+
           const { data: s } = await supabase.from('profiles').select('id, full_name, avatar_url, is_verified').eq('id', newRow.sender_id).maybeSingle();
           const sender = s || null;
-          
+
           queryClient.setQueryData(queryKey, (old: any) => {
             if (!old) return old;
             return { ...old, messages: [...old.messages, { ...newRow, sender }] };
           });
           try { playMessageIn(); } catch {}
           queryClient.invalidateQueries({ queryKey: ['convs', myId] });
-        } 
-        // Skip UPDATEs for own messages
+        }
         else if (payload.eventType === 'UPDATE') {
-          if (payload.new.sender_id === myId) return;
           queryClient.setQueryData(queryKey, (old: any) => {
             if (!old) return old;
             return { ...old, messages: old.messages.map((m: any) => m.id === payload.new.id ? { ...m, read_at: payload.new.read_at, is_deleted: payload.new.is_deleted } : m) };
           });
         }
-        // DELETE
         else if (payload.eventType === 'DELETE') {
           queryClient.setQueryData(queryKey, (old: any) => {
             if (!old) return old;
@@ -175,8 +181,24 @@ export default function ConversationScreen({ route, navigation }: any) {
       }
     );
     const timer = setTimeout(() => ch.subscribe(), 100);
-    return () => { clearTimeout(timer); supabase.removeChannel(ch); };
-  }, [id, myId, queryClient, queryKey]);
+
+    const profileCh = supabase.channel(`profile-${other?.id}-${Date.now()}`)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${other?.id}` }, (payload) => {
+        queryClient.setQueryData(queryKey, (old: any) => {
+          if (!old) return old;
+          return { ...old, other: { ...old.other, ...payload.new } };
+        });
+      });
+    
+    const profileTimer = setTimeout(() => profileCh.subscribe(), 100);
+
+    return () => { 
+      clearTimeout(timer); 
+      clearTimeout(profileTimer);
+      supabase.removeChannel(ch); 
+      supabase.removeChannel(profileCh);
+    };
+  }, [id, myId, queryClient, queryKey, other?.id]);
 
   const lastMsgId = messages.length > 0 ? messages[messages.length - 1].id : null;
   useEffect(() => {
@@ -187,11 +209,7 @@ export default function ConversationScreen({ route, navigation }: any) {
 
   const insertMessage = async (payload: any) => {
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const now = Date.now();
-    const content = payload.content || '';
 
-
-    // 2. Optimistic add
     queryClient.setQueryData(queryKey, (old: any) => {
       if (!old) return old;
       return {
@@ -200,7 +218,6 @@ export default function ConversationScreen({ route, navigation }: any) {
       };
     });
 
-    // 3. Network
     const { data: inserted, error } = await supabase
       .from('messages')
       .insert({ conversation_id: id, sender_id: myId, ...payload })
@@ -214,17 +231,14 @@ export default function ConversationScreen({ route, navigation }: any) {
       throw new Error(error.message);
     }
 
-    // 4. Reconcile: swap temp message properties in-place (do NOT reorder)
     queryClient.setQueryData(queryKey, (old: any) => {
       if (!old) return old;
       return {
         ...old,
         messages: old.messages.map((m: any) => {
-          // Replace temp with real, keeping position stable
           if (m.id === tempId) {
             return { ...inserted, sender: profile, _optimistic: false };
           }
-          // Drop duplicate from realtime if it slipped through
           if (m.id === inserted.id) {
             return null;
           }
@@ -232,8 +246,17 @@ export default function ConversationScreen({ route, navigation }: any) {
         }).filter(Boolean)
       };
     });
-    // Note: intentionally NOT invalidating conversation cache to avoid flicker
   };
+
+  const [recording, setRecording] = useState(false);
+  const [recordingMs, setRecordingMs] = useState(0);
+  const [cancelArmed, setCancelArmed] = useState(false);
+
+  const startRecording = async () => {
+    setErrMsg('Voice notes are temporarily disabled.');
+  };
+  const finishRecording = async () => {};
+  const cancelRecording = async () => {};
 
   const sendText = async () => {
     const content = text.trim();
@@ -279,15 +302,12 @@ export default function ConversationScreen({ route, navigation }: any) {
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: '#000' }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={{ flex: 1, paddingBottom: Platform.OS === 'android' ? keyboardHeight : 0 }}>
-        
-        {/* THEME BACKGROUND */}
         {theme.isGradient ? (
           <LinearGradient colors={theme.colors as any} style={StyleSheet.absoluteFillObject} />
         ) : (
           <View style={[StyleSheet.absoluteFillObject, { backgroundColor: theme.bg }]} />
         )}
 
-        {/* HEADER */}
         <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 6, marginRight: 6 }}>
             <Ionicons name="chevron-back" size={26} color="#fff" />
@@ -324,7 +344,6 @@ export default function ConversationScreen({ route, navigation }: any) {
 
         {errMsg ? <View style={{ backgroundColor: '#7f1d1d', margin: 10, padding: 10, borderRadius: 8 }}><Text style={{ color: '#fff', fontSize: 13 }}>{errMsg}</Text></View> : null}
 
-        {/* MESSAGES */}
         <ScrollView ref={scrollRef} style={{ flex: 1 }} contentContainerStyle={{ padding: 14 }} onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })} keyboardShouldPersistTaps="handled">
           {messages.map((m: any) => (
             <SwipeableMessage
@@ -355,20 +374,21 @@ export default function ConversationScreen({ route, navigation }: any) {
           </View>
         )}
 
-        {/* COMPOSER */}
         <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, 10) }]}>
           <View style={styles.composerBar}>
             <TextInput style={styles.input} placeholder="Message" placeholderTextColor="#6d7382" value={text} onChangeText={setText} multiline />
             <FastButton onPress={pickImage} style={{ padding: 6 }} disabled={uploading}>
               <Ionicons name="attach" size={22} color="#fff" />
             </FastButton>
+            <TouchableOpacity onPress={startRecording} style={{ padding: 6 }} disabled={uploading}>
+              <Ionicons name="mic" size={22} color={recording ? '#ef4444' : '#fff'} />
+            </TouchableOpacity>
           </View>
           <FastButton style={styles.sendBtn} onPress={sendText} disabled={uploading}>
             <Ionicons name="send" size={20} color="#fff" />
           </FastButton>
         </View>
 
-        {/* CHAT OPTIONS */}
         <BottomSheet open={menuOpen} onClose={() => setMenuOpen(false)} maxHeight="60vh">
           <View style={{ padding: 20 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
@@ -390,7 +410,6 @@ export default function ConversationScreen({ route, navigation }: any) {
           </View>
         </BottomSheet>
 
-        {/* CHAT THEME PICKER */}
         <ChatThemePicker
           open={themePickerOpen}
           current={activeTheme}
@@ -402,7 +421,6 @@ export default function ConversationScreen({ route, navigation }: any) {
           onClose={() => setThemePickerOpen(false)}
         />
 
-        {/* GROUP MEMBERS MODAL */}
         {isGroup && (
           <Modal visible={membersOpen} transparent animationType="slide" onRequestClose={() => setMembersOpen(false)}>
             <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' }}>
@@ -425,7 +443,6 @@ export default function ConversationScreen({ route, navigation }: any) {
             </View>
           </Modal>
         )}
-
       </View>
     </KeyboardAvoidingView>
   );

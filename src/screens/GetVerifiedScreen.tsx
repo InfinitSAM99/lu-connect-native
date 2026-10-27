@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
@@ -24,8 +24,8 @@ function PaymentRow({ iconName, label, value }: any) {
 }
 
 function StatusPill({ status }: any) {
-  const s = status === 'approved' ? { bg: 'rgba(34,197,94,0.15)', color: '#22c55e' } 
-          : status === 'rejected' ? { bg: 'rgba(239,68,68,0.15)', color: '#ef4444' } 
+  const s = status === 'approved' ? { bg: 'rgba(34,197,94,0.15)', color: '#22c55e' }
+          : status === 'rejected' ? { bg: 'rgba(239,68,68,0.15)', color: '#ef4444' }
           : { bg: '#141414', color: '#aab0bd' };
   return (
     <View style={{ backgroundColor: s.bg, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 }}>
@@ -37,10 +37,11 @@ function StatusPill({ status }: any) {
 export default function GetVerifiedScreen({ navigation }: any) {
   const { profile, reloadProfile } = useAuth();
   const insets = useSafeAreaInsets();
-  
+
   const [code, setCode] = useState('');
   const [phone, setPhone] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [stkPushing, setStkPushing] = useState(false);
   const [myPayments, setMyPayments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [errMsg, setErrMsg] = useState('');
@@ -55,11 +56,51 @@ export default function GetVerifiedScreen({ navigation }: any) {
 
   useEffect(() => { if (profile) load(); }, [profile?.id]);
 
-  const submit = async () => {
+  // STK Push - automatic payment
+  const payWithStk = async () => {
+    setErrMsg('');
+    const cleanedPhone = phone.trim().replace(/\D/g, '');
+    if (cleanedPhone.length < 10) {
+      Alert.alert('Error', 'Enter a valid M-Pesa phone number (e.g. 0712345678)');
+      return;
+    }
+
+    setStkPushing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('initiate-mpesa-payment', {
+        body: {
+          phone: cleanedPhone,
+          amount: PRICE,
+          purpose: 'verify',
+          user_id: profile.id
+        }
+      });
+
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      Alert.alert(
+        'STK Push Sent',
+        'Check your phone for the M-Pesa PIN prompt. Enter your PIN to complete payment.',
+        [{ text: 'OK' }]
+      );
+      
+      // Clear phone and reload payments after a delay
+      setPhone('');
+      setTimeout(() => load(), 15000);
+    } catch (e: any) {
+      setErrMsg('Payment failed: ' + e.message);
+    } finally {
+      setStkPushing(false);
+    }
+  };
+
+  // Manual payment - user sends money and enters code
+  const submitManual = async () => {
     setErrMsg('');
     const cleanedCode = code.trim().toUpperCase();
     if (cleanedCode.length < 6) return setErrMsg('Enter the full M-Pesa confirmation code (e.g. QK47ABC123).');
-    
+
     setSubmitting(true);
     const { error } = await supabase.from('payments').insert({
       user_id: profile.id,
@@ -79,17 +120,17 @@ export default function GetVerifiedScreen({ navigation }: any) {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
-      <TopBar 
-        hero 
-        title="Get verified" 
+      <TopBar
+        hero
+        title="Get verified"
         subtitle="Join the trusted members of LU CONNECT"
-        showBack={true} 
-        onBack={() => navigation.goBack()} 
+        showBack={true}
+        onBack={() => navigation.goBack()}
         rightComponent={<Ionicons name="shield-checkmark" size={48} color="#ef4444" style={{ marginTop: 4 }} />}
       />
 
       <ScrollView contentContainerStyle={{ paddingBottom: 100 + insets.bottom }}>
-        
+
         <View style={styles.headerRow}>
           <Ionicons name="shield-checkmark" size={40} color="#ef4444" style={{ marginRight: 16 }} />
           <View style={{ flex: 1 }}>
@@ -118,7 +159,9 @@ export default function GetVerifiedScreen({ navigation }: any) {
             <Ionicons name="hourglass" size={22} color="#6d7382" style={{ marginRight: 12 }} />
             <View style={{ flex: 1 }}>
               <Text style={{ fontWeight: '600', fontSize: 15, color: '#fff' }}>Pending review</Text>
-              <Text style={{ fontSize: 13, color: '#6d7382', marginTop: 4 }}>We received your code <Text style={{ color: '#fff', fontWeight: 'bold' }}>{pending.mpesa_code}</Text>.</Text>
+              <Text style={{ fontSize: 13, color: '#6d7382', marginTop: 4 }}>
+                {pending.mpesa_code ? `Code: ${pending.mpesa_code}` : 'STK push sent — enter your PIN.'}
+              </Text>
             </View>
           </View>
         )}
@@ -135,26 +178,32 @@ export default function GetVerifiedScreen({ navigation }: any) {
 
         {!isVerified && !pending && (
           <>
-            <SectionHeader>Step 1 · Send payment</SectionHeader>
+            {errMsg ? <Text style={{ color: '#ef4444', fontSize: 13, marginHorizontal: 20, marginBottom: 12 }}>{errMsg}</Text> : null}
+
+            <SectionHeader>Option 1 · Auto payment (STK Push)</SectionHeader>
+            <View style={{ paddingHorizontal: 20 }}>
+              <Text style={{ fontSize: 13, color: '#6d7382', marginBottom: 12, lineHeight: 20 }}>
+                Enter your phone number below. You'll receive a PIN prompt on your phone. Enter your PIN to complete the payment automatically.
+              </Text>
+              <Text style={styles.label}>Phone number</Text>
+              <TextInput style={styles.input} placeholder="0712345678" placeholderTextColor="#6d7382" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
+              <TouchableOpacity style={styles.primaryBtn} onPress={payWithStk} disabled={stkPushing}>
+                {stkPushing ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Pay KSh {PRICE} via M-Pesa</Text>}
+              </TouchableOpacity>
+            </View>
+
+            <SectionHeader>Option 2 · Manual payment</SectionHeader>
             <View style={{ paddingHorizontal: 20 }}>
               <PaymentRow iconName="chatbubble-outline" label="M-Pesa number" value={MPESA_NUMBER} />
               <PaymentRow iconName="person-outline" label="Name" value={MPESA_NAME} />
               <PaymentRow iconName="star-outline" label="Amount" value={`KSh ${PRICE}`} />
               <Text style={{ fontSize: 13, color: '#6d7382', marginTop: 14, lineHeight: 20 }}>Send the money via M-Pesa, then copy the confirmation code.</Text>
-            </View>
 
-            <SectionHeader>Step 2 · Submit confirmation</SectionHeader>
-            <View style={{ paddingHorizontal: 20 }}>
-              {errMsg ? <Text style={{ color: '#ef4444', fontSize: 13, marginBottom: 12 }}>{errMsg}</Text> : null}
-              
-              <Text style={styles.label}>M-Pesa code</Text>
+              <Text style={[styles.label, { marginTop: 16 }]}>M-Pesa code</Text>
               <TextInput style={styles.input} placeholder="e.g. QK47ABC123" placeholderTextColor="#6d7382" value={code} onChangeText={setCode} autoCapitalize="characters" />
-              
-              <Text style={styles.label}>Phone (optional)</Text>
-              <TextInput style={styles.input} placeholder="07XX XXX XXX" placeholderTextColor="#6d7382" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
-              
-              <TouchableOpacity style={styles.primaryBtn} onPress={submit} disabled={submitting}>
-                <Text style={styles.primaryBtnText}>{submitting ? 'Submitting…' : 'Submit for review'}</Text>
+
+              <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: '#141414', borderWidth: 1, borderColor: '#1f1f1f' }]} onPress={submitManual} disabled={submitting}>
+                <Text style={{ color: '#fff', fontSize: 15, fontWeight: '600' }}>{submitting ? 'Submitting…' : 'Submit code for review'}</Text>
               </TouchableOpacity>
             </View>
           </>
@@ -167,7 +216,7 @@ export default function GetVerifiedScreen({ navigation }: any) {
               {myPayments.map(p => (
                 <View key={p.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#1f1f1f' }}>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontWeight: '600', fontSize: 14, color: '#fff' }}>{p.mpesa_code}</Text>
+                    <Text style={{ fontWeight: '600', fontSize: 14, color: '#fff' }}>{p.mpesa_code || 'STK Push'}</Text>
                     <Text style={{ fontSize: 12, color: '#6d7382', marginTop: 2 }}>{new Date(p.created_at).toLocaleString()}</Text>
                   </View>
                   <StatusPill status={p.status} />

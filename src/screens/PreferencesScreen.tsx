@@ -47,6 +47,7 @@ export default function PreferencesScreen({ navigation }: any) {
   const hapticsOn = profile.haptics_enabled !== false;
   const toastOn = profile.toast_enabled !== false;
   const soundOn = profile.notification_sound_enabled !== false;
+  const alertsOn = profile.alerts_enabled !== false;
 
   const saveToggle = async (field: string, next: boolean) => {
     if (next) await tapMedium();
@@ -92,6 +93,20 @@ export default function PreferencesScreen({ navigation }: any) {
           subtitle="Play a chime when a notification arrives"
           on={soundOn}
           onToggle={() => saveToggle('notification_sound_enabled', !soundOn)}
+        />
+        <ToggleRow
+          iconName="notifications-outline"
+          title="In-app alerts"
+          subtitle="Show red pulse on Feed for new messages"
+          on={alertsOn}
+          onToggle={() => saveToggle('alerts_enabled', !alertsOn)}
+        />
+        <ToggleRow
+          iconName="notifications-outline"
+          title="In-app alerts"
+          subtitle="Show red pulse on Feed for new messages"
+          on={alertsOn}
+          onToggle={() => saveToggle('alerts_enabled', !alertsOn)}
         />
       </View>
     </View>

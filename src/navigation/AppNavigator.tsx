@@ -47,13 +47,14 @@ import GetBoostedScreen from '../screens/GetBoostedScreen';
 import VideoScreen from '../screens/VideoScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import ProfileEditScreen from '../screens/ProfileEditScreen';
+import SessionLockScreen from '../screens/SessionLockScreen';
+import HallOfFameScreen from '../screens/HallOfFameScreen';
 import MenuScreen from '../screens/MenuScreen';
 import MarketplaceScreen from '../screens/MarketplaceScreen';
 import MarketplaceItemScreen from '../screens/MarketplaceItemScreen';
 
 const Stack = createNativeStackNavigator();
 
-// Wrap in Layout so RadialNav shows on all main screens
 const withLayout = (Component) => (props) => (
   <Layout>
     <Component {...props} />
@@ -61,11 +62,12 @@ const withLayout = (Component) => (props) => (
 );
 
 export default function AppNavigator() {
-  const { user, profile, loading } = useAuth();
+  const { user, profile, loading, reloadProfile , kickoutReason } = useAuth();
   const [splashDone, setSplashDone] = useState(false);
 
   if (!splashDone) return <Splash onDone={() => setSplashDone(true)} />;
 
+  if (kickoutReason) return <SessionLockScreen />;
   if (loading) {
     return (
       <View style={styles.center}>
@@ -74,7 +76,6 @@ export default function AppNavigator() {
     );
   }
 
-  // Match web Layout logic exactly:
   const needsTerms = !!profile && !profile.terms_accepted_at && profile.approval_status === 'approved';
   if (needsTerms) return <TermsGate />;
 
@@ -82,20 +83,19 @@ export default function AppNavigator() {
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {!user ? (
-          // AUTH FLOW
           <>
             <Stack.Screen name="Login" component={LoginScreen} />
-            <Stack.Screen name="UniversityPicker" component={UniversityPickerScreen} options={{ presentation: 'modal' }} />
             <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
+            <Stack.Screen name="UniversityPicker" component={UniversityPickerScreen} options={{ presentation: 'modal' }} />
           </>
         ) : profile?.approval_status === 'banned' || profile?.approval_status === 'high_ban' || profile?.approval_status === 'rejected' ? (
           <Stack.Screen name="Appeal" component={AppealScreen} />
         ) : profile?.approval_status === 'pending' ? (
           <Stack.Screen name="Pending" component={PendingScreen} />
         ) : (
-          // MAIN APP FLOW
           <>
             <Stack.Screen name="Feed" component={withLayout(FeedScreen)} />
+            <Stack.Screen name="HallOfFame" component={HallOfFameScreen} />
             <Stack.Screen name="Search" component={withLayout(SearchScreen)} />
             <Stack.Screen name="Connections" component={withLayout(ConnectionsScreen)} />
             <Stack.Screen name="Messages" component={withLayout(MessagesScreen)} />
@@ -121,11 +121,7 @@ export default function AppNavigator() {
             <Stack.Screen name="Menu" component={withLayout(MenuScreen)} />
             <Stack.Screen name="Marketplace" component={MarketplaceScreen} />
             <Stack.Screen name="MarketplaceItem" component={MarketplaceItemScreen} />
-            
-            {/* UniversityPicker as modal in main app */}
             <Stack.Screen name="UniversityPicker" component={UniversityPickerScreen} options={{ presentation: 'modal' }} />
-
-            {/* Fullscreen (no RadialNav) */}
             <Stack.Screen name="NotificationList" component={NotificationListScreen} />
             <Stack.Screen name="Conversation" component={ConversationScreen} />
             <Stack.Screen name="GroupDetail" component={GroupDetailScreen} />

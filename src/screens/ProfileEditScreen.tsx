@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Image, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Image, ActivityIndicator, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import UniversityPickerScreen from './UniversityPickerScreen';
 import TopBar from '../components/TopBar';
 import FastButton from '../components/FastButton';
 
@@ -20,6 +21,8 @@ export default function ProfileEditScreen({ navigation, route }: any) {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+  const [showUniModal, setShowUniModal] = useState(false);
+  const universityLocked = !!profile?.university_locked_at;
   const [showFacultyPicker, setShowFacultyPicker] = useState(false);
   const [showYearPicker, setShowYearPicker] = useState(false);
 
@@ -82,6 +85,7 @@ export default function ProfileEditScreen({ navigation, route }: any) {
       course: form.course.trim(),
       year_of_study: Number(form.year_of_study),
       university_id: form.university_id,
+      university_name: form.university_name,
       avatar_url: avatarUrl,
     };
 
@@ -115,10 +119,10 @@ export default function ProfileEditScreen({ navigation, route }: any) {
         <Text style={[styles.label, { marginTop: 12 }]}>University</Text>
         <TouchableOpacity 
           style={styles.selectBtn} 
-          onPress={() => navigation.navigate('UniversityPicker', { returnTo: 'ProfileEdit' })}
+          onPress={() => { if (!universityLocked) setShowUniModal(true); else Alert.alert('University Locked', 'You can only set your university once. Contact admin to change.'); }}
         >
           <Ionicons name="school" size={18} color="#6d7382" style={{ marginRight: 10 }} />
-          <Text style={{ flex: 1, color: form.university_name ? '#fff' : '#6d7382', fontSize: 15 }}>{form.university_name || 'Choose your university'}</Text>
+          <Text style={{ flex: 1, color: form.university_name ? '#fff' : '#6d7382', fontSize: 15 }}>{form.university_name ? (universityLocked ? form.university_name + ' 🔒' : form.university_name) : 'Choose your university'}</Text>
           <Ionicons name="chevron-forward" size={18} color="#6d7382" />
         </TouchableOpacity>
 
@@ -141,6 +145,28 @@ export default function ProfileEditScreen({ navigation, route }: any) {
           {saving ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontSize: 15, fontWeight: '600' }}>Save profile</Text>}
         </FastButton>
       </ScrollView>
+      <Modal visible={showUniModal} animationType="slide" presentationStyle="pageSheet">
+        <UniversityPickerScreen 
+          onSelect={async (item: any) => {
+            // 1. Update local form
+            setForm({ ...form, university_name: item.name, university_id: item.id });
+            setShowUniModal(false);
+            // 2. Save immediately to DB
+            try {
+              await supabase.from('profiles').update({
+                university_id: item.id,
+                university_name: item.name
+              }).eq('id', profile.id);
+              // 3. Refresh the profile in memory
+              if (reloadProfile) await reloadProfile();
+            } catch (e: any) {
+              console.error(e);
+              alert('Could not save university. Please try again.');
+            }
+          }} 
+          onClose={() => setShowUniModal(false)} 
+        />
+      </Modal>
 
       {showFacultyPicker && (
         <View style={StyleSheet.absoluteFill}>

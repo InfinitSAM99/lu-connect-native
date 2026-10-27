@@ -132,6 +132,72 @@ export default function ProfileScreen({ route, navigation }: any) {
     invalidate();
   };
 
+  // ─── Follow / Connect state ─────────────────────────────────────
+  const [following, setFollowing] = React.useState(false);
+  const [connected, setConnected] = React.useState(false);
+  const [connectLoading, setConnectLoading] = React.useState(false);
+
+  // Load current follow/connect status when viewing someone else's profile
+  React.useEffect(() => {
+    if (!me?.id || !profile?.id || me.id === profile.id) return;
+    (async () => {
+      const [followRes, connectRes] = await Promise.all([
+        supabase.from('follows').select('id').eq('follower_id', me.id).eq('following_id', profile.id).maybeSingle(),
+        supabase.from('connections').select('id, status').or(`and(requester_id.eq.${me.id},receiver_id.eq.${profile.id}),and(requester_id.eq.${profile.id},receiver_id.eq.${me.id})`).maybeSingle(),
+      ]);
+      setFollowing(!!followRes.data);
+      setConnected(!!connectRes.data);
+    })();
+  }, [me?.id, profile?.id]);
+
+  const openConversation = async () => {
+    if (!me?.id || !profile?.id || connectLoading) return;
+    setConnectLoading(true);
+    try {
+      // Call create_dm RPC — it returns the conversation id or creates a new one
+      const { data: convId, error } = await supabase.rpc('create_dm', { other_user_id: profile.id });
+      if (error) throw error;
+      if (!convId) throw new Error('Could not create conversation');
+      navigation.navigate('Conversation', { id: convId });
+    } catch (e: any) {
+      Alert.alert('Message error', e.message);
+    } finally {
+      setConnectLoading(false);
+    }
+  };
+
+  const toggleFollow = async () => {
+    if (!me?.id || !profile?.id || connectLoading) return;
+    setConnectLoading(true);
+    try {
+      if (following) {
+        await supabase.from('follows').delete().eq('follower_id', me.id).eq('following_id', profile.id);
+        setFollowing(false);
+      } else {
+        await supabase.from('follows').insert({ follower_id: me.id, following_id: profile.id });
+        setFollowing(true);
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e.message);
+    } finally {
+      setConnectLoading(false);
+    }
+  };
+
+  const handleConnect = async () => {
+    if (!me?.id || !profile?.id || connected || connectLoading) return;
+    setConnectLoading(true);
+    try {
+      await supabase.from('connections').insert({ requester_id: me.id, receiver_id: profile.id, status: 'pending' });
+      setConnected(true);
+    } catch (e: any) {
+      Alert.alert('Error', e.message);
+    } finally {
+      setConnectLoading(false);
+    }
+  };
+  // ───────────────────────────────────────────────────────────────
+
   if (loading) return <View style={{ flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator color="#ef4444" /></View>;
   if (!profile) return <View style={{ flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff' }}>Profile not found</Text></View>;
 
@@ -159,14 +225,44 @@ export default function ProfileScreen({ route, navigation }: any) {
         
         {/* COVER */}
         <View style={styles.coverContainer}>
-          <TouchableOpacity activeOpacity={1} onPress={() => profile.cover_url && setViewerTarget('cover')}>
+          <TouchableOpacity activeOpacity={1} onPress={() => { if (isMe) pickAndUpload('cover'); else if (profile.cover_url) setViewerTarget('cover'); }}>
             {profile.cover_url ? (
               <Image source={{ uri: profile.cover_url }} style={styles.coverImage} />
             ) : (
-              <View style={[styles.coverImage, { backgroundColor: '#ef4444' }]} />
+              <View style={[styles.coverImage, { backgroundColor: '#0a0a0a', alignItems: 'center', justifyContent: 'center' }]}>
+              {isMe && (
+                <View style={{ alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="camera" size={28} color="#6d7382" />
+                  <Text style={{ color: '#6d7382', fontSize: 12, fontWeight: '600' }}>Tap to add cover</Text>
+                </View>
+              )}
+            </View>
             )}
           </TouchableOpacity>
           
+          {isMe && profile.cover_url && (
+            <TouchableOpacity
+              onPress={() => pickAndUpload('cover')}
+              style={{
+                position: 'absolute',
+                bottom: 12,
+                right: 12,
+                backgroundColor: 'rgba(0,0,0,0.7)',
+                borderRadius: 20,
+                paddingHorizontal: 12,
+                paddingVertical: 6,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 6,
+                borderWidth: 1,
+                borderColor: 'rgba(255,255,255,0.2)',
+              }}
+            >
+              <Ionicons name="camera" size={14} color="#fff" />
+              <Text style={{ color: '#fff', fontSize: 11, fontWeight: '600' }}>Change Cover</Text>
+            </TouchableOpacity>
+          )}
+
           <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
             <Ionicons name="chevron-back" size={26} color="#fff" />
           </TouchableOpacity>
@@ -175,7 +271,9 @@ export default function ProfileScreen({ route, navigation }: any) {
         {/* AVATAR + NAME */}
         <View style={styles.avatarSection}>
           <TouchableOpacity activeOpacity={0.9} onPress={() => setViewerTarget('avatar')} style={{ position: 'relative' }}>
-            <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+            <TouchableOpacity onPress={() => isMe && pickAndUpload('avatar')} activeOpacity={0.85}>
+              <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+            </TouchableOpacity>
           </TouchableOpacity>
           
           <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 14, gap: 6 }}>
@@ -188,11 +286,31 @@ export default function ProfileScreen({ route, navigation }: any) {
 
           {!isMe && (
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
-              <TouchableOpacity style={styles.pillPrimary}>
-                <Text style={styles.pillPrimaryText}>Follow</Text>
+              <TouchableOpacity 
+                style={[styles.pillPrimary, following && { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#ef4444' }]}
+                onPress={toggleFollow}
+              >
+                <Text style={[styles.pillPrimaryText, following && { color: '#ef4444' }]}>
+                  {following ? 'Following' : 'Follow'}
+                </Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.pillGhost}>
-                <Text style={styles.pillGhostText}>Connect</Text>
+              <TouchableOpacity 
+                style={[styles.pillGhost, connected && { backgroundColor: '#141414', borderColor: '#6d7382' }]}
+                onPress={handleConnect}
+                disabled={connected || connectLoading}
+              >
+                <Text style={[styles.pillGhostText, connected && { color: '#6d7382' }]}>
+                  {connectLoading ? 'Sending...' : connected ? 'Requested' : 'Connect'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.pillGhost, { backgroundColor: '#141414', borderColor: '#1f1f1f' }]}
+                onPress={openConversation}
+                disabled={connectLoading}
+              >
+                <Text style={[styles.pillGhostText, { color: '#fff' }]}>
+                  {connectLoading ? '...' : 'Message'}
+                </Text>
               </TouchableOpacity>
             </View>
           )}
@@ -333,6 +451,11 @@ function InfoRow({ icon, label, value, last }: any) {
 }
 
 const styles = StyleSheet.create({
+  pillBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, borderWidth: 1 },
+  pillBtnFollow: { backgroundColor: '#ef4444', borderColor: '#ef4444' },
+  pillBtnConnect: { backgroundColor: 'transparent', borderColor: '#ef4444' },
+  pillBtnFollowing: { backgroundColor: 'transparent', borderColor: '#ef4444' },
+  pillBtnText: { fontSize: 13, fontWeight: '700' },
   coverContainer: { height: 200, position: 'relative' },
   coverImage: { width: '100%', height: '100%' },
   backBtn: { position: 'absolute', top: 40, left: 16, width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' },

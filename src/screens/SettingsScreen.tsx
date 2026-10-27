@@ -105,8 +105,7 @@ export default function SettingsScreen({ navigation, route }: any) {
       { text: 'Sign out', style: 'destructive', onPress: async () => {
           setSigningOut(true);
           await signOut();
-          navigation.replace('Login');
-        }
+                  }
       }
     ]);
   };

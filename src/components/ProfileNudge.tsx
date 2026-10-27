@@ -23,10 +23,10 @@ export default function ProfileNudge() {
 
   const complete = isComplete(profile);
 
+  // Removed the DB update that was crashing the app. 
+  // The nudge will now just read the existing deadline from the DB.
   useEffect(() => {
-    if (complete || profile?.profile_nudge_deadline) return;
-    const deadline = new Date(Date.now() + GRACE_MS).toISOString();
-    supabase.from('profiles').update({ profile_nudge_deadline: deadline }).eq('id', profile.id).then();
+    // No-op: the deadline is set by the DB trigger on_profile_created
   }, [profile?.id, complete]);
 
   useEffect(() => {
