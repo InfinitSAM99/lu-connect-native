@@ -20,21 +20,25 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: Install Android SDK
+        run: |
+          export ANDROID_HOME=$HOME/android-sdk
+          export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
+          mkdir -p $ANDROID_HOME/cmdline-tools
+          cd $ANDROID_HOME/cmdline-tools
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          unzip -q commandlinetools-linux-*.zip
+          mv cmdline-tools latest
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;27.1.12297006" > /dev/null 2>&1
+          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
+          echo "PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH" >> $GITHUB_ENV
+
       - name: Install dependencies
         run: npm install --legacy-peer-deps
 
       - name: Install EAS CLI
         run: npm install -g eas-cli
-
-      - name: Verify token is set
-        run: |
-          if [ -z "$EXPO_TOKEN" ]; then
-            echo "ERROR: EXPO_TOKEN is empty"
-            exit 1
-          fi
-          echo "EXPO_TOKEN is set (length: ${#EXPO_TOKEN})"
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
 
       - name: Build APK locally
         run: |
