@@ -26,10 +26,20 @@ jobs:
       - name: Install EAS CLI
         run: npm install -g eas-cli
 
-      - name: Build APK locally
+      - name: Verify token is set
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "ERROR: EXPO_TOKEN is empty"
+            exit 1
+          fi
+          echo "EXPO_TOKEN is set (length: ${#EXPO_TOKEN})"
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        run: eas build --platform android --profile preview --local --non-interactive --output=./build.apk
+
+      - name: Build APK locally
+        run: |
+          export EXPO_TOKEN=${{ secrets.EXPO_TOKEN }}
+          eas build --platform android --profile preview --local --non-interactive --output=./build.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
