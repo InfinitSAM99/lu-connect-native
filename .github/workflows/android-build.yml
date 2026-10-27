@@ -41,7 +41,7 @@ jobs:
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;27.1.12297006" || true
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install --legacy-peer-deps
 
       - name: Expo Prebuild (generate android folder)
         run: npx expo prebuild --platform android --no-install
