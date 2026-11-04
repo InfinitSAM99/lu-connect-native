@@ -1,30 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Image, ActivityIndicator, Modal } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Image, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import UniversityPickerScreen from './UniversityPickerScreen';
 import TopBar from '../components/TopBar';
 import FastButton from '../components/FastButton';
 
-const FACULTIES = ['Science', 'Education', 'Business & Economics', 'Arts & Social Sciences', 'Agriculture', 'Health Sciences', 'Law', 'Engineering', 'Other'];
-const YEARS = ['1', '2', '3', '4', '5', '6'];
-
-export default function ProfileEditScreen({ navigation, route }: any) {
-  const { profile, reloadProfile, setProfile } = useAuth();
-  const insets = useSafeAreaInsets();
+export default function ProfileEditScreen({ navigation }: any) {
+  const { profile, reloadProfile } = useAuth();
   
-  const [form, setForm] = useState({ full_name: '', faculty: '', course: '', year_of_study: '', university_name: '', university_id: '' });
+  const [form, setForm] = useState({
+    full_name: '', faculty: '', course: '', academicLevel: '',
+    location: '', hometown: '', residence: '', relationship: '', birthday: '', interests: ''
+  });
   const [avatarUrl, setAvatarUrl] = useState('');
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
-  const [showUniModal, setShowUniModal] = useState(false);
-  const universityLocked = !!profile?.university_locked_at;
-  const [showFacultyPicker, setShowFacultyPicker] = useState(false);
-  const [showYearPicker, setShowYearPicker] = useState(false);
 
   useEffect(() => {
     if (!profile) return;
@@ -32,23 +25,16 @@ export default function ProfileEditScreen({ navigation, route }: any) {
       full_name: profile.full_name || '',
       faculty: profile.faculty || '',
       course: profile.course || '',
-      year_of_study: profile.year_of_study ? String(profile.year_of_study) : '',
-      university_name: profile.university_name || '',
-      university_id: profile.university_id || '',
+      academicLevel: profile.year_of_study || '',
+      location: profile.location || '',
+      hometown: profile.hometown || '',
+      residence: profile.residence || '',
+      relationship: profile.relationship || '',
+      birthday: profile.birthday || '',
+      interests: profile.interests || '',
     });
     setAvatarUrl(profile.avatar_url || '');
   }, [profile?.id]);
-
-  useEffect(() => {
-    if (route.params?.pickedUniversity) {
-      setForm(prev => ({
-        ...prev,
-        university_name: route.params.pickedUniversity.name,
-        university_id: route.params.pickedUniversity.id,
-      }));
-      navigation.setParams({ pickedUniversity: null });
-    }
-  }, [route.params?.pickedUniversity]);
 
   const pickAvatar = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.6 });
@@ -73,137 +59,131 @@ export default function ProfileEditScreen({ navigation, route }: any) {
     if (!profile) return;
     setErr('');
     if (!form.full_name.trim()) return setErr('Full name is required');
-    if (!form.university_id) return setErr('Please select your university');
-    if (!form.faculty) return setErr('Please select your faculty');
-    if (!form.course.trim()) return setErr('Please enter your course');
-    if (!form.year_of_study) return setErr('Please select your year of study');
-
-    setSaving(true);
-    const updates: any = {
-      full_name: form.full_name.trim(),
-      faculty: form.faculty,
-      course: form.course.trim(),
-      year_of_study: Number(form.year_of_study),
-      university_id: form.university_id,
-      university_name: form.university_name,
-      avatar_url: avatarUrl,
-    };
-
-    const { error } = await supabase.from('profiles').update(updates).eq('id', profile.id);
-    setSaving(false);
-    if (error) return setErr(error.message);
     
-    // Instant update
-    setProfile({ ...profile, ...updates });
-    reloadProfile?.();
-    navigation.goBack();
+    setSaving(true);
+    try {
+      const { error } = await supabase.from('profiles').update({
+        full_name: form.full_name.trim(),
+        faculty: form.faculty,
+        course: form.course.trim(),
+        year_of_study: form.academicLevel,
+        location: form.location.trim(),
+        hometown: form.hometown.trim(),
+        residence: form.residence.trim(),
+        relationship: form.relationship.trim(),
+        birthday: form.birthday.trim(),
+        interests: form.interests.trim(),
+        avatar_url: avatarUrl,
+      }).eq('id', profile.id);
+
+      if (error) throw error;
+      await reloadProfile();
+      navigation.goBack();
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
+  const renderInput = (label: string, key: keyof typeof form, placeholder: string, icon: string) => (
+    <View style={styles.inputGroup}>
+      <Text style={styles.label}>{label}</Text>
+      <View style={styles.inputWrap}>
+        <Ionicons name={icon as any} size={20} color="#6d7382" style={{ marginRight: 10 }} />
+        <TextInput
+          style={styles.input}
+          placeholder={placeholder}
+          placeholderTextColor="#6d7382"
+          value={form[key]}
+          onChangeText={(v) => setForm({ ...form, [key]: v })}
+        />
+      </View>
+    </View>
+  );
+
   return (
-    <View style={{ flex: 1, backgroundColor: '#000' }}>
-      <TopBar title="Complete Profile" showBack={true} onBack={() => navigation.goBack()} />
+    <View style={styles.container}>
+      <TopBar title="Edit Profile" showBack onBack={() => navigation.goBack()} />
       
-      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 + insets.bottom }} keyboardShouldPersistTaps="handled">
-        <View style={{ alignItems: 'center', marginBottom: 24 }}>
-          <TouchableOpacity style={styles.avatarBtn} onPress={pickAvatar} disabled={uploadingAvatar}>
-            {avatarUrl ? <Image source={{ uri: avatarUrl }} style={{ width: '100%', height: '100%' }} /> : <Ionicons name="person" size={40} color="#6d7382" />}
-            <View style={styles.avatarCam}><Ionicons name="camera" size={15} color="#fff" /></View>
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 100 }}>
+        
+        {/* AVATAR */}
+        <View style={styles.avatarSection}>
+          <TouchableOpacity onPress={pickAvatar} disabled={uploadingAvatar}>
+            {avatarUrl ? (
+              <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+            ) : (
+              <View style={styles.avatarPlaceholder}>
+                <Ionicons name="person" size={40} color="#6d7382" />
+              </View>
+            )}
+            <View style={styles.cameraIcon}>
+              {uploadingAvatar ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="camera" size={16} color="#fff" />}
+            </View>
+          </TouchableOpacity>
+          <Text style={styles.changePhotoText}>Change Profile Photo</Text>
+        </View>
+
+        {err ? <Text style={styles.errorText}>{err}</Text> : null}
+
+        {/* BASIC INFO */}
+        <Text style={styles.sectionHeader}>BASIC INFO</Text>
+        {renderInput('Full Name', 'full_name', 'Your full name', 'person-outline')}
+        {renderInput('Course', 'course', 'e.g. BSc Computer Science', 'book-outline')}
+
+        {/* ACADEMIC */}
+        <Text style={styles.sectionHeader}>ACADEMIC DETAILS</Text>
+        
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Faculty</Text>
+          <TouchableOpacity style={styles.inputWrap} onPress={() => navigation.navigate('FacultyPicker', { onSelect: (f: string) => setForm({ ...form, faculty: f }) })}>
+            <Ionicons name="school-outline" size={20} color="#6d7382" style={{ marginRight: 10 }} />
+            <Text style={[styles.input, { color: form.faculty ? '#fff' : '#6d7382' }]}>{form.faculty || 'Select faculty'}</Text>
           </TouchableOpacity>
         </View>
 
-        {err ? <View style={styles.errBox}><Text style={{ color: '#ef4444', fontSize: 13 }}>{err}</Text></View> : null}
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Academic Level</Text>
+          <TouchableOpacity style={styles.inputWrap} onPress={() => navigation.navigate('AcademicLevelPicker', { onSelect: (l: string) => setForm({ ...form, academicLevel: l }) })}>
+            <Ionicons name="calendar-outline" size={20} color="#6d7382" style={{ marginRight: 10 }} />
+            <Text style={[styles.input, { color: form.academicLevel ? '#fff' : '#6d7382' }]}>{form.academicLevel || 'Select academic level'}</Text>
+          </TouchableOpacity>
+        </View>
 
-        <Text style={styles.label}>Full name</Text>
-        <TextInput style={styles.input} value={form.full_name} onChangeText={(v) => setForm({ ...form, full_name: v })} placeholder="Your full name" placeholderTextColor="#6d7382" />
+        {/* ADDITIONAL DETAILS */}
+        <Text style={styles.sectionHeader}>ADDITIONAL DETAILS</Text>
+        {renderInput('Location', 'location', 'e.g. Laikipia', 'location-outline')}
+        {renderInput('Hometown', 'hometown', 'e.g. Kakamega', 'home-outline')}
+        {renderInput('Residence', 'residence', 'e.g. Taili Mbili', 'bed-outline')}
+        {renderInput('Relationship Status', 'relationship', 'e.g. Single, In a relationship', 'heart-outline')}
+        {renderInput('Birthday', 'birthday', 'e.g. February 3', 'gift-outline')}
+        {renderInput('Interests', 'interests', 'e.g. Coding, Music, Sports', 'star-outline')}
 
-        <Text style={[styles.label, { marginTop: 12 }]}>University</Text>
-        <TouchableOpacity 
-          style={styles.selectBtn} 
-          onPress={() => { if (!universityLocked) setShowUniModal(true); else Alert.alert('University Locked', 'You can only set your university once. Contact admin to change.'); }}
-        >
-          <Ionicons name="school" size={18} color="#6d7382" style={{ marginRight: 10 }} />
-          <Text style={{ flex: 1, color: form.university_name ? '#fff' : '#6d7382', fontSize: 15 }}>{form.university_name ? (universityLocked ? form.university_name + ' 🔒' : form.university_name) : 'Choose your university'}</Text>
-          <Ionicons name="chevron-forward" size={18} color="#6d7382" />
-        </TouchableOpacity>
-
-        <Text style={[styles.label, { marginTop: 12 }]}>Faculty</Text>
-        <TouchableOpacity style={styles.selectBtn} onPress={() => setShowFacultyPicker(true)}>
-          <Text style={{ flex: 1, color: form.faculty ? '#fff' : '#6d7382', fontSize: 15 }}>{form.faculty || 'Select your faculty'}</Text>
-          <Ionicons name="chevron-down" size={18} color="#6d7382" />
-        </TouchableOpacity>
-
-        <Text style={[styles.label, { marginTop: 12 }]}>Course</Text>
-        <TextInput style={styles.input} value={form.course} onChangeText={(v) => setForm({ ...form, course: v })} placeholder="e.g. Bachelor of Education Arts" placeholderTextColor="#6d7382" />
-
-        <Text style={[styles.label, { marginTop: 12 }]}>Year of study</Text>
-        <TouchableOpacity style={styles.selectBtn} onPress={() => setShowYearPicker(true)}>
-          <Text style={{ flex: 1, color: form.year_of_study ? '#fff' : '#6d7382', fontSize: 15 }}>{form.year_of_study ? `Year ${form.year_of_study}` : 'Select year'}</Text>
-          <Ionicons name="chevron-down" size={18} color="#6d7382" />
-        </TouchableOpacity>
-
-        <FastButton style={[styles.saveBtn, (saving || uploadingAvatar) && { opacity: 0.5 }]} onPress={save} disabled={saving || uploadingAvatar}>
-          {saving ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontSize: 15, fontWeight: '600' }}>Save profile</Text>}
+        <FastButton style={styles.saveBtn} onPress={save} disabled={saving}>
+          {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveBtnText}>SAVE CHANGES</Text>}
         </FastButton>
       </ScrollView>
-      <Modal visible={showUniModal} animationType="slide" presentationStyle="pageSheet">
-        <UniversityPickerScreen 
-          onSelect={async (item: any) => {
-            // 1. Update local form
-            setForm({ ...form, university_name: item.name, university_id: item.id });
-            setShowUniModal(false);
-            // 2. Save immediately to DB
-            try {
-              await supabase.from('profiles').update({
-                university_id: item.id,
-                university_name: item.name
-              }).eq('id', profile.id);
-              // 3. Refresh the profile in memory
-              if (reloadProfile) await reloadProfile();
-            } catch (e: any) {
-              console.error(e);
-              alert('Could not save university. Please try again.');
-            }
-          }} 
-          onClose={() => setShowUniModal(false)} 
-        />
-      </Modal>
-
-      {showFacultyPicker && (
-        <View style={StyleSheet.absoluteFill}>
-           <ScrollView contentContainerStyle={{ padding: 20, paddingTop: 100, backgroundColor: '#000' }}>
-             <Text style={{ fontSize: 18, fontWeight: '700', color: '#fff', textAlign: 'center', marginBottom: 16 }}>Select Faculty</Text>
-             {FACULTIES.map(f => (
-               <TouchableOpacity key={f} style={styles.pickerItem} onPress={() => { setForm({ ...form, faculty: f }); setShowFacultyPicker(false); }}>
-                 <Text style={{ color: '#fff', fontSize: 15 }}>{f}</Text>
-               </TouchableOpacity>
-             ))}
-           </ScrollView>
-        </View>
-      )}
-
-      {showYearPicker && (
-        <View style={StyleSheet.absoluteFill}>
-           <ScrollView contentContainerStyle={{ padding: 20, paddingTop: 100, backgroundColor: '#000' }}>
-             <Text style={{ fontSize: 18, fontWeight: '700', color: '#fff', textAlign: 'center', marginBottom: 16 }}>Select Year</Text>
-             {YEARS.map(y => (
-               <TouchableOpacity key={y} style={styles.pickerItem} onPress={() => { setForm({ ...form, year_of_study: y }); setShowYearPicker(false); }}>
-                 <Text style={{ color: '#fff', fontSize: 15 }}>Year {y}</Text>
-               </TouchableOpacity>
-             ))}
-           </ScrollView>
-        </View>
-      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  errBox: { backgroundColor: 'rgba(239,68,68,0.14)', padding: 12, borderRadius: 12, marginBottom: 16 },
-  avatarBtn: { width: 96, height: 96, borderRadius: 48, backgroundColor: '#141414', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-  avatarCam: { position: 'absolute', bottom: 0, right: 0, width: 30, height: 30, borderRadius: 15, backgroundColor: '#ef4444', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#000' },
-  label: { fontSize: 12, fontWeight: '500', color: '#6d7382', marginBottom: 6 },
-  input: { backgroundColor: '#141414', borderRadius: 12, padding: 14, color: '#fff', fontSize: 15 },
-  selectBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#141414', borderRadius: 12, padding: 14 },
-  saveBtn: { backgroundColor: '#ef4444', borderRadius: 16, padding: 16, alignItems: 'center', justifyContent: 'center', marginTop: 24 },
-  pickerItem: { paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#1f1f1f' },
+  container: { flex: 1, backgroundColor: '#000' },
+  avatarSection: { alignItems: 'center', marginBottom: 24, marginTop: 10 },
+  avatar: { width: 100, height: 100, borderRadius: 50, borderWidth: 2, borderColor: '#ef4444' },
+  avatarPlaceholder: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#1f1f1f', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#ef4444' },
+  cameraIcon: { position: 'absolute', bottom: 0, right: 0, backgroundColor: '#ef4444', width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#000' },
+  changePhotoText: { color: '#ef4444', fontSize: 13, fontWeight: '600', marginTop: 8 },
+  
+  sectionHeader: { color: '#6d7382', fontSize: 11, fontWeight: '800', letterSpacing: 2, marginTop: 24, marginBottom: 12 },
+  
+  inputGroup: { marginBottom: 16 },
+  label: { color: '#6d7382', fontSize: 12, fontWeight: '600', marginBottom: 6, marginLeft: 4 },
+  inputWrap: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0a0a0a', borderRadius: 12, borderWidth: 1, borderColor: '#1f1f1f', paddingHorizontal: 14 },
+  input: { flex: 1, color: '#fff', fontSize: 15, paddingVertical: 14 },
+  
+  saveBtn: { backgroundColor: '#ef4444', borderRadius: 14, padding: 16, alignItems: 'center', marginTop: 20 },
+  saveBtnText: { color: '#fff', fontSize: 14, fontWeight: '800', letterSpacing: 1.5 },
+  errorText: { color: '#ef4444', textAlign: 'center', marginBottom: 10, fontSize: 13 },
 });

@@ -14,7 +14,7 @@ const BUTTON_SIZE = 50;
 const ICON_SIZE = 36;
 const CYCLE_MS = 4400;
 
-const NAV_ITEMS = [
+const BASE_NAV_ITEMS = [
   { to: 'Profile',       label: 'Profile',       icon: 'person' },
   { to: 'Notifications', label: 'Notifications', icon: 'notifications' },
   { to: 'Video',         label: 'Video',         icon: 'videocam' },
@@ -24,22 +24,24 @@ const NAV_ITEMS = [
   { to: 'Feed',          label: 'Home',          icon: 'home' },
 ];
 
-// Semicircle positions
-const positions = NAV_ITEMS.map((_, i) => {
-  const t = i / (NAV_ITEMS.length - 1);
-  const angle = Math.PI - t * Math.PI;
-  return {
-    x: Math.cos(angle) * RADIUS,
-    y: -Math.sin(angle) * RADIUS,
-  };
-});
-
 export default function RadialNav({ unreadMessages = 0 }: any) {
   const navigation = useNavigation();
   const { profile } = useAuth();
   const routeName = useNavigationState((state) => state?.routes[state.index]?.name);
   const [open, setOpen] = useState(false);
   const [cycle, setCycle] = useState(0);
+
+  const navItems = BASE_NAV_ITEMS;
+
+  // Semicircle positions
+  const positions = navItems.map((_, i) => {
+    const t = i / (navItems.length - 1);
+    const angle = Math.PI - t * Math.PI;
+    return {
+      x: Math.cos(angle) * RADIUS,
+      y: -Math.sin(angle) * RADIUS,
+    };
+  });
 
   const openAnim = useRef(new Animated.Value(0)).current;
   const rotateAnim = useRef(new Animated.Value(0)).current;
@@ -116,7 +118,7 @@ export default function RadialNav({ unreadMessages = 0 }: any) {
         ]}
         pointerEvents="box-none"
       >
-        {NAV_ITEMS.map((item, i) => {
+        {navItems.map((item, i) => {
           const { x, y } = positions[i];
           const isActive = routeName === item.to;
 

@@ -13,13 +13,11 @@ export default function AccountsCenterScreen({ navigation }: any) {
   const { profile } = useAuth();
   const insets = useSafeAreaInsets();
 
+
   if (!profile) return <View style={styles.center}><Text style={{ color: '#6d7382' }}>Loading…</Text></View>;
 
   const isPro = !!profile.professional_mode;
 
-  const goToSettings = (sheetName: string) => {
-    navigation.navigate('Settings', { edit: sheetName });
-  };
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
@@ -37,10 +35,9 @@ export default function AccountsCenterScreen({ navigation }: any) {
       />
 
       <ScrollView contentContainerStyle={{ paddingBottom: 100 + insets.bottom }}>
-        
         <SectionHeader>Your account</SectionHeader>
         
-        <TouchableOpacity style={styles.flatRow} onPress={() => goToSettings('personal')}>
+        <TouchableOpacity style={styles.flatRow} onPress={() => navigation.navigate('ProfileEdit')}>
           <Ionicons name="person-outline" size={22} color="#fff" style={{ width: 24 }} />
           <View style={{ flex: 1 }}>
             <Text style={styles.flatRowTitle}>Personal Details</Text>
@@ -49,7 +46,7 @@ export default function AccountsCenterScreen({ navigation }: any) {
           <Ionicons name="chevron-forward" size={18} color="#6d7382" />
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.flatRow} onPress={() => goToSettings('profile')}>
+        <TouchableOpacity style={styles.flatRow} onPress={() => navigation.navigate('ProfileEdit')}>
           <Ionicons name="pencil" size={22} color="#fff" style={{ width: 24 }} />
           <View style={{ flex: 1 }}>
             <Text style={styles.flatRowTitle}>Profile Information</Text>
@@ -58,7 +55,7 @@ export default function AccountsCenterScreen({ navigation }: any) {
           <Ionicons name="chevron-forward" size={18} color="#6d7382" />
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.flatRow} onPress={() => goToSettings('username')}>
+        <TouchableOpacity style={styles.flatRow} onPress={() => navigation.navigate('ProfileEdit')}>
           <Ionicons name="at" size={22} color="#fff" style={{ width: 24 }} />
           <View style={{ flex: 1 }}>
             <Text style={styles.flatRowTitle}>Username</Text>
@@ -67,7 +64,7 @@ export default function AccountsCenterScreen({ navigation }: any) {
           <Ionicons name="chevron-forward" size={18} color="#6d7382" />
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.flatRow} onPress={() => goToSettings('password')}>
+        <TouchableOpacity style={styles.flatRow} onPress={() => navigation.navigate('Settings', { openPassword: true })}>
           <Ionicons name="lock-closed" size={22} color="#fff" style={{ width: 24 }} />
           <View style={{ flex: 1 }}>
             <Text style={styles.flatRowTitle}>Password & Security</Text>

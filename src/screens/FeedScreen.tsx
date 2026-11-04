@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, ActivityIndicator, RefreshControl, Alert, TouchableOpacity, Modal, Keyboard, ScrollView , Image } from 'react-native';
+import { View, Text, StyleSheet, FlatList, ActivityIndicator, RefreshControl, Alert, TouchableOpacity, Modal, Keyboard, ScrollView, Image, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect } from '@react-navigation/native';
@@ -8,7 +8,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import UniversityPickerScreen from './UniversityPickerScreen';
 import PostComposer from '../components/PostComposer';
-import QuickAlertBubbles from '../components/QuickAlertBubbles';
+import UploadReelModal from '../components/UploadReelModal';
 import PostCard from '../components/PostCard';
 import CommentDrawer from '../components/CommentDrawer';
 import LULogo from '../components/LULogo';
@@ -66,7 +66,6 @@ async function fetchFeedData(myId: string, universityId: string | 'all' | 'mine'
     .order('created_at', { ascending: false })
     .limit(POOL_SIZE);
 
-  // Apply the University Filter
   if (universityId === 'mine' && myUniversityId) {
     postsQuery = postsQuery.eq('university_id', myUniversityId);
   } else if (universityId !== 'all') {
@@ -82,7 +81,6 @@ async function fetchFeedData(myId: string, universityId: string | 'all' | 'mine'
 
   const hiddenIds = new Set((hiddenRes.data || []).map((h: any) => h.post_id));
   let rawPosts = Array.isArray(postsRes.data) ? postsRes.data.filter((p: any) => !hiddenIds.has(p.id)) : [];
-  // Shuffle to avoid newest posts always dominating the pool
   for (let i = rawPosts.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [rawPosts[i], rawPosts[j]] = [rawPosts[j], rawPosts[i]];
@@ -96,25 +94,16 @@ async function fetchFeedData(myId: string, universityId: string | 'all' | 'mine'
 
   const scoredPosts = enriched.map((p: any) => {
     let score = 0;
-    
-    // Boosted posts always win
     if (boostedIds.has(p.id)) score += 5000;
-    
-    // Friends and residence
     if (friendIds.has(p.author_id)) score += 200;
     if (residence && p.profiles?.residence && p.profiles.residence.toLowerCase().includes(residence.toLowerCase())) score += 150;
-
-    // Freshness
     const ageHrs = (now - new Date(p.created_at).getTime()) / 3_600_000;
     if (ageHrs < 1) score += 300;
     else if (ageHrs < 6) score += 150;
     else if (ageHrs < 24) score += 80;
     else if (ageHrs < 72) score += 20;
     else score -= Math.min(500, ageHrs);
-
-    // Pure randomness (likes/comments no longer affect the score)
     score += Math.floor(Math.random() * 1000);
-
     return { ...p, _score: score };
   });
 
@@ -123,11 +112,20 @@ async function fetchFeedData(myId: string, universityId: string | 'all' | 'mine'
 }
 
 export default function FeedScreen({ navigation, route }: any) {
-  const { profile } = useAuth();
+  const { profile, reloadProfile } = useAuth();
+
+  // Safety net: If profile is missing details, trigger a reload to force the Enforcer
+  useEffect(() => {
+    if (profile && profile.approval_status === 'approved') {
+      if (!profile.university_id || !profile.avatar_url || !profile.faculty || !profile.course || !profile.year_of_study) {
+        reloadProfile();
+      }
+    }
+  }, [profile]);
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
   const myId = profile?.id;
-  
+
   const [activePost, setActivePost] = useState<any>(null);
   const [menuPost, setMenuPost] = useState<any>(null);
   const [composerOpen, setComposerOpen] = useState(false);
@@ -136,11 +134,28 @@ export default function FeedScreen({ navigation, route }: any) {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [visibleCount, setVisibleCount] = useState(15);
 
-  // filterUniversity can be 'mine', 'all', or a UUID
   const [filterUniversity, setFilterUniversity] = useState<string>('mine');
   const [filterLabel, setFilterLabel] = useState<string>('My University');
   const [showUniModal, setShowUniModal] = useState(false);
-  // Handle navigation params from Menu (e.g., Confessions -> open composer anonymously)
+  
+  // ADMIN STATES
+  const [showAdminModal, setShowAdminModal] = useState(false);
+  const [showCreateMenu, setShowCreateMenu] = useState(false);
+  const [showReelUpload, setShowReelUpload] = useState(false);
+  const [adminCode, setAdminCode] = useState('');
+  const [adminError, setAdminError] = useState('');
+
+  const checkAdminCode = () => {
+    if (adminCode.trim().toUpperCase() === 'UUTK5A') {
+      setShowAdminModal(false);
+      setAdminCode('');
+      setAdminError('');
+      navigation.navigate('AdminDashboard');
+    } else {
+      setAdminError('Invalid secret code.');
+    }
+  };
+
   useEffect(() => {
     if (route?.params?.openComposer) {
       setComposerOpen(true);
@@ -148,7 +163,6 @@ export default function FeedScreen({ navigation, route }: any) {
       navigation.setParams({ openComposer: undefined, anonymous: undefined });
     }
   }, [route?.params?.openComposer]);
-
 
   useEffect(() => {
     const showSub = Keyboard.addListener('keyboardDidShow', (e) => setKeyboardHeight(e.endCoordinates.height));
@@ -165,54 +179,28 @@ export default function FeedScreen({ navigation, route }: any) {
     queryFn: () => fetchFeedData(myId!, filterUniversity, profile?.university_id, profile?.residence),
   });
 
-  // Reset pagination whenever the filter changes
-  useEffect(() => {
-    setVisibleCount(15);
-  }, [filterUniversity]);
+  useEffect(() => { setVisibleCount(15); }, [filterUniversity]);
 
-  // Fetch events (show all, including past ones, so the section is never empty)
   const eventsQuery = useQuery({
     queryKey: ['events-horizontal'],
     enabled: !!myId,
     staleTime: 30000,
     queryFn: async () => {
       const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
-      const { data } = await supabase
-        .from('events')
-        .select('id, title, image_url, starts_at, location')
-        .gte('starts_at', threeDaysAgo)
-        .order('starts_at', { ascending: true })
-        .limit(10);
+      const { data } = await supabase.from('events').select('id, title, image_url, starts_at, location').gte('starts_at', threeDaysAgo).order('starts_at', { ascending: true }).limit(10);
       return data || [];
     },
   });
 
-  // Fetch suggested people (not already friends/connected)
   const suggestionsQuery = useQuery({
     queryKey: ['suggestions', myId],
     enabled: !!myId,
     staleTime: 60000,
     queryFn: async () => {
-      // Get existing connections
-      const { data: conns } = await supabase
-        .from('connections')
-        .select('requester_id, receiver_id')
-        .or(`requester_id.eq.${myId},receiver_id.eq.${myId}`);
-      
+      const { data: conns } = await supabase.from('connections').select('requester_id, receiver_id').or(`requester_id.eq.${myId},receiver_id.eq.${myId}`);
       const excludeIds = new Set<string>([myId!]);
-      (conns || []).forEach((c: any) => {
-        excludeIds.add(c.requester_id);
-        excludeIds.add(c.receiver_id);
-      });
-
-      const { data } = await supabase
-        .from('profiles')
-        .select('id, full_name, avatar_url, course, university_name, is_verified')
-        .eq('is_bot', false)
-        .eq('approval_status', 'approved')
-        .neq('id', myId)
-        .limit(30);
-
+      (conns || []).forEach((c: any) => { excludeIds.add(c.requester_id); excludeIds.add(c.receiver_id); });
+      const { data } = await supabase.from('profiles').select('id, full_name, avatar_url, course, university_name, is_verified').eq('is_bot', false).eq('approval_status', 'approved').neq('id', myId).limit(30);
       return (data || []).filter((p: any) => !excludeIds.has(p.id)).slice(0, 8);
     },
   });
@@ -226,20 +214,13 @@ export default function FeedScreen({ navigation, route }: any) {
       return data?.[0] || null;
     },
   });
-  const topWinner = leaderboard;
 
   const upcomingEvents = eventsQuery.data || [];
   const suggestions = suggestionsQuery.data || [];
 
-  // Force a fresh fetch every time we return to the feed
-  useFocusEffect(
-    React.useCallback(() => {
-      if (myId) feedQuery.refetch();
-    }, [myId])
-  );
+  useFocusEffect(React.useCallback(() => { if (myId) feedQuery.refetch(); }, [myId]));
 
   const allPosts = feedQuery.data || [];
-  // Keep the just-created post at the top for 5 seconds
   const stickyPost = stickyPostId ? allPosts.find((p: any) => p.id === stickyPostId) : null;
   const otherPosts = stickyPostId ? allPosts.filter((p: any) => p.id !== stickyPostId) : allPosts;
   const posts = (stickyPost ? [stickyPost, ...otherPosts] : otherPosts).slice(0, visibleCount);
@@ -256,31 +237,11 @@ export default function FeedScreen({ navigation, route }: any) {
 
   const handleNewPost = async () => {
     setComposerOpen(false);
-    
-    // Wait a moment for the DB to commit the post
     await new Promise(r => setTimeout(r, 500));
-    
-    // Get the latest post by this user
-    const { data } = await supabase
-      .from('posts')
-      .select('id')
-      .eq('author_id', myId)
-      .eq('is_deleted', false)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
+    const { data } = await supabase.from('posts').select('id').eq('author_id', myId).eq('is_deleted', false).order('created_at', { ascending: false }).limit(1).maybeSingle();
     if (data?.id) {
       setStickyPostId(data.id);
-
-      // Fetch the full post object so we can inject it immediately
-      const { data: fullPost } = await supabase
-        .from('posts')
-        .select('*, post_media(*)')
-        .eq('id', data.id)
-        .maybeSingle();
-
-      // Inject into the query cache so it renders instantly
+      const { data: fullPost } = await supabase.from('posts').select('*, post_media(*)').eq('id', data.id).maybeSingle();
       if (fullPost) {
         queryClient.setQueryData(['feed', myId, filterUniversity], (old: any) => {
           if (!Array.isArray(old)) return [fullPost];
@@ -288,8 +249,6 @@ export default function FeedScreen({ navigation, route }: any) {
           return [fullPost, ...old];
         });
       }
-
-      // Unpin after 5 seconds
       setTimeout(async () => {
         setStickyPostId(null);
         await queryClient.invalidateQueries({ queryKey: ['feed', myId, filterUniversity] });
@@ -305,21 +264,8 @@ export default function FeedScreen({ navigation, route }: any) {
     await feedQuery.refetch();
   };
 
-  const selectMine = () => {
-    setFilterUniversity('mine');
-    setFilterLabel('My University');
-    setVisibleCount(15);
-  };
-
-  const selectAll = () => {
-    setFilterUniversity('all');
-    setFilterLabel('All Universities');
-    setVisibleCount(15);
-  };
-
-  const openPicker = () => {
-    setShowUniModal(true);
-  };
+  const selectMine = () => { setFilterUniversity('mine'); setFilterLabel('My University'); setVisibleCount(15); };
+  const selectAll = () => { setFilterUniversity('all'); setFilterLabel('All Universities'); setVisibleCount(15); };
 
   const handleDelete = (post: any) => {
     setMenuPost(null);
@@ -349,10 +295,7 @@ export default function FeedScreen({ navigation, route }: any) {
     setMenuPost(null);
     try {
       await supabase.from('hidden_posts').insert({ user_id: myId, post_id: post.id });
-      // Remove from local cache instantly
-      queryClient.setQueryData(['feed', myId, filterUniversity], (old: any) =>
-        Array.isArray(old) ? old.filter((p: any) => p.id !== post.id) : old
-      );
+      queryClient.setQueryData(['feed', myId, filterUniversity], (old: any) => Array.isArray(old) ? old.filter((p: any) => p.id !== post.id) : old);
     } catch (e: any) {
       Alert.alert('Error', e.message);
     }
@@ -370,7 +313,7 @@ export default function FeedScreen({ navigation, route }: any) {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000', position: 'relative' }}>
-      
+
       {/* HEADER */}
       <View style={[styles.stickyHeader, { paddingTop: Math.max(insets.top, 12) }]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -378,10 +321,15 @@ export default function FeedScreen({ navigation, route }: any) {
           <Text style={styles.brandText}>LU CONNECT</Text>
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          {profile?.email === 'adminsammy@admin.com' ? (
+            <TouchableOpacity onPress={() => setShowAdminModal(true)} style={{ padding: 4 }}>
+              <Ionicons name="finger-print" size={26} color="#6d7382" />
+            </TouchableOpacity>
+          ) : null}
           <FastButton style={styles.plusBtn} onPress={() => navigation.navigate('Search')}>
             <Ionicons name="search" size={22} color="#fff" />
           </FastButton>
-          <FastButton style={styles.plusBtn} onPress={() => setComposerOpen(true)}>
+          <FastButton style={styles.plusBtn} onPress={() => setShowCreateMenu(true)}>
             <Ionicons name="add" size={26} color="#fff" />
           </FastButton>
         </View>
@@ -390,25 +338,19 @@ export default function FeedScreen({ navigation, route }: any) {
       {/* FILTER BAR */}
       <View style={{ borderBottomWidth: 1, borderBottomColor: '#1f1f1f', backgroundColor: '#000' }}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 10, gap: 8 }}>
-          <FastButton 
-            style={[styles.filterPill, filterUniversity === 'mine' && styles.filterPillActive]} 
-            onPress={selectMine}
-          >
+          <FastButton style={[styles.filterPill, filterUniversity === 'mine' && styles.filterPillActive]} onPress={selectMine}>
             <Text style={[styles.filterText, filterUniversity === 'mine' && styles.filterTextActive]}>
               {profile?.university_name || 'My University'}
             </Text>
           </FastButton>
-          <FastButton 
-            style={[styles.filterPill, filterUniversity === 'all' && styles.filterPillActive]} 
-            onPress={selectAll}
-          >
+          <FastButton style={[styles.filterPill, filterUniversity === 'all' && styles.filterPillActive]} onPress={selectAll}>
             <Text style={[styles.filterText, filterUniversity === 'all' && styles.filterTextActive]}>
               🇰🇪 All Universities
             </Text>
           </FastButton>
-          <FastButton 
-            style={[styles.filterPill, filterUniversity !== 'mine' && filterUniversity !== 'all' && styles.filterPillActive]} 
-            onPress={openPicker}
+          <FastButton
+            style={[styles.filterPill, filterUniversity !== 'mine' && filterUniversity !== 'all' && styles.filterPillActive]}
+            onPress={() => setShowUniModal(true)}
           >
             <Ionicons name="search" size={14} color={filterUniversity !== 'mine' && filterUniversity !== 'all' ? '#fff' : '#6d7382'} />
             <Text style={[styles.filterText, filterUniversity !== 'mine' && filterUniversity !== 'all' && styles.filterTextActive]}>
@@ -430,10 +372,7 @@ export default function FeedScreen({ navigation, route }: any) {
           <FastButton onPress={refreshFeed} style={styles.retryBtn}><Text style={styles.retryText}>Retry</Text></FastButton>
         </View>
       ) : (
-        
-
-      <FlatList
-
+        <FlatList
           data={posts}
           renderItem={({ item, index }: any) => {
             const showPeople = index === 2 || index === 10;
@@ -489,9 +428,7 @@ export default function FeedScreen({ navigation, route }: any) {
             );
           }}
           keyExtractor={(item: any) => item.id}
-          onEndReached={() => {
-            if (visibleCount < allPosts.length) setVisibleCount(v => v + 15);
-          }}
+          onEndReached={() => { if (visibleCount < allPosts.length) setVisibleCount(v => v + 15); }}
           onEndReachedThreshold={0.5}
           ListEmptyComponent={
             <View style={styles.emptyBox}>
@@ -501,36 +438,19 @@ export default function FeedScreen({ navigation, route }: any) {
             </View>
           }
           contentContainerStyle={{ paddingBottom: 120 + insets.bottom }}
-          refreshControl={
-            <RefreshControl
-              refreshing={loading}
-              onRefresh={refreshFeed}
-              tintColor="#ef4444"
-              colors={['#ef4444']}
-              progressBackgroundColor="#0a0a0a"
-            />
-          }
+          refreshControl={<RefreshControl refreshing={loading} onRefresh={refreshFeed} tintColor="#ef4444" colors={['#ef4444']} progressBackgroundColor="#0a0a0a" />}
           initialNumToRender={6}
           maxToRenderPerBatch={6}
-          windowSize={7}
-          removeClippedSubviews={true}
+          windowSize={15} // Increased to keep more images in memory
+          removeClippedSubviews={false} // Changed from true to prevent black boxes
           updateCellsBatchingPeriod={50}
           showsVerticalScrollIndicator={false}
-          ListFooterComponent={
-            visibleCount < allPosts.length ? (
-              <View style={{ padding: 20, alignItems: 'center' }}>
-                <ActivityIndicator color="#ef4444" />
-              </View>
-            ) : allPosts.length > 0 ? (
-              <Text style={{ textAlign: 'center', color: '#6d7382', padding: 20, fontSize: 13 }}>You're all caught up 🎉</Text>
-            ) : null
-          }
+          ListFooterComponent={visibleCount < allPosts.length ? (<View style={{ padding: 20, alignItems: 'center' }}><ActivityIndicator color="#ef4444" /></View>) : allPosts.length > 0 ? (<Text style={{ textAlign: 'center', color: '#6d7382', padding: 20, fontSize: 13 }}>You're all caught up 🎉</Text>) : null}
         />
       )}
 
-      {/* COMPOSER MODAL */}
-      <QuickAlertBubbles />
 
+      {/* COMPOSER MODAL */}
       <Modal visible={composerOpen} animationType="slide" transparent onRequestClose={() => setComposerOpen(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)', paddingBottom: keyboardHeight }}>
           <View style={{ backgroundColor: '#0a0a0a', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '92%' }}>
@@ -545,57 +465,184 @@ export default function FeedScreen({ navigation, route }: any) {
         </View>
       </Modal>
 
-      {/* POST MENU */}
-      {menuPost && (
-        <Modal transparent visible animationType="fade" onRequestClose={() => setMenuPost(null)}>
-          <FastButton style={styles.menuOverlay} onPress={() => setMenuPost(null)}>
-            <View style={styles.menuSheet}>
-              <FastButton style={styles.menuItem} onPress={() => handleSave(menuPost)}>
-                <Ionicons name="bookmark-outline" size={20} color="#fff" />
-                <Text style={styles.menuText}>{menuPost.saved ? 'Unsave' : 'Save'}</Text>
-              </FastButton>
-              <FastButton style={styles.menuItem} onPress={() => hidePost(menuPost)}>
-                <Ionicons name="eye-off-outline" size={20} color="#6d7382" />
-                <Text style={[styles.menuText, { color: '#6d7382' }]}>I don't want to see this</Text>
-              </FastButton>
-              {menuPost.author_id === myId && (
-                <>
-                  <FastButton style={styles.menuItem} onPress={() => { setMenuPost(null); navigation.navigate('GetBoosted'); }}>
-                    <Ionicons name="rocket-outline" size={20} color="#fff" />
-                    <Text style={styles.menuText}>Boost this post</Text>
-                  </FastButton>
-                  <FastButton style={styles.menuItem} onPress={() => handleDelete(menuPost)}>
-                    <Ionicons name="trash-outline" size={20} color="#ef4444" />
-                    <Text style={[styles.menuText, { color: '#ef4444' }]}>Delete post</Text>
-                  </FastButton>
-                </>
-              )}
-            </View>
-          </FastButton>
-        </Modal>
-      )}
+      {activePost ? <CommentDrawer post={activePost} onClose={() => setActivePost(null)} /> : null}
 
-      {activePost && (
-        <CommentDrawer post={activePost} onClose={() => setActivePost(null)} />
-      )}
+      <Modal visible={!!menuPost} transparent animationType="fade" onRequestClose={() => setMenuPost(null)}>
+        <TouchableOpacity style={styles.menuOverlay} activeOpacity={1} onPress={() => setMenuPost(null)}>
+          <View style={styles.menuSheet}>
+            {menuPost?.author_id === myId && (
+              <TouchableOpacity style={styles.menuItem} onPress={() => handleDelete(menuPost)}>
+                <Ionicons name="trash" size={20} color="#ef4444" />
+                <Text style={[styles.menuText, { color: '#ef4444' }]}>Delete Post</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={styles.menuItem} onPress={() => handleSave(menuPost)}>
+              <Ionicons name={menuPost?.saved ? "bookmark" : "bookmark-outline"} size={20} color="#fff" />
+              <Text style={styles.menuText}>{menuPost?.saved ? 'Unsave Post' : 'Save Post'}</Text>
+            </TouchableOpacity>
+            {menuPost?.author_id !== myId && (
+              <TouchableOpacity style={styles.menuItem} onPress={() => hidePost(menuPost)}>
+                <Ionicons name="eye-off" size={20} color="#fff" />
+                <Text style={styles.menuText}>Hide Post</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
-      {/* UNIVERSITY PICKER MODAL */}
       <Modal visible={showUniModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowUniModal(false)}>
-        <UniversityPickerScreen
-          onSelect={(item: any) => {
-            setFilterUniversity(item.id);
-            setFilterLabel(item.name);
-            setVisibleCount(15);
-            setShowUniModal(false);
-          }}
-          onClose={() => setShowUniModal(false)}
+        <UniversityPickerScreen 
+          onSelect={(item: any) => { 
+            setFilterUniversity(item.id); 
+            setFilterLabel(item.name); 
+            setVisibleCount(15); 
+            setShowUniModal(false); 
+          }} 
+          onClose={() => setShowUniModal(false)} 
         />
+      </Modal>
+
+      
+      <UploadReelModal visible={showReelUpload} onClose={() => setShowReelUpload(false)} onUploaded={() => {}} />
+
+      {/* CREATE MENU */}
+      <Modal visible={showCreateMenu} transparent animationType="slide" onRequestClose={() => setShowCreateMenu(false)}>
+        <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'flex-start' }} activeOpacity={1} onPress={() => setShowCreateMenu(false)}>
+          <View style={{ backgroundColor: '#0a0a0a', borderBottomLeftRadius: 24, borderBottomRightRadius: 24, paddingTop: insets.top + 20, paddingBottom: 30 }}>
+            
+            <Text style={{ color: '#fff', fontSize: 18, fontWeight: '800', textAlign: 'center', marginBottom: 24, letterSpacing: 1 }}>CREATE</Text>
+
+            <View style={{ flexDirection: 'row', justifyContent: 'space-around', paddingHorizontal: 20 }}>
+              
+              {/* POST */}
+              <TouchableOpacity style={{ alignItems: 'center' }} onPress={() => { setShowCreateMenu(false); setComposerOpen(true); }}>
+                <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(59,130,246,0.15)', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
+                  <Ionicons name="create" size={30} color="#3b82f6" />
+                </View>
+                <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>Post</Text>
+              </TouchableOpacity>
+
+              {/* REEL */}
+              <TouchableOpacity style={{ alignItems: 'center' }} onPress={() => { setShowCreateMenu(false); setShowReelUpload(true); }}>
+                <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(244,63,94,0.15)', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
+                  <Ionicons name="videocam" size={30} color="#f43f5e" />
+                </View>
+                <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>Reel</Text>
+              </TouchableOpacity>
+
+              {/* EVENT */}
+              <TouchableOpacity style={{ alignItems: 'center' }} onPress={() => { setShowCreateMenu(false); navigation.navigate('Events'); }}>
+                <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(139,92,246,0.15)', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
+                  <Ionicons name="calendar" size={30} color="#8b5cf6" />
+                </View>
+                <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>Event</Text>
+              </TouchableOpacity>
+
+              {/* ACADEMIC */}
+              <TouchableOpacity style={{ alignItems: 'center' }} onPress={() => { setShowCreateMenu(false); navigation.navigate('AcademicHub'); }}>
+                <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(234,179,8,0.15)', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
+                  <Ionicons name="school" size={30} color="#eab308" />
+                </View>
+                <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>Academic</Text>
+              </TouchableOpacity>
+
+            </View>
+
+            <View style={{ alignItems: 'center', marginTop: 30 }}>
+               <TouchableOpacity onPress={() => setShowCreateMenu(false)} style={{ padding: 10 }}>
+                 <Text style={{ color: '#6d7382', fontSize: 14, fontWeight: '600' }}>Cancel</Text>
+               </TouchableOpacity>
+            </View>
+
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ADMIN SECRET CODE MODAL */}
+      <Modal visible={showAdminModal} transparent animationType="fade">
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.adminModalContainer}>
+          <ScrollView contentContainerStyle={styles.adminModalContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+            
+            <View style={styles.logoWrapper}>
+              <View style={styles.logoGlow} />
+              <View style={styles.logoBox}>
+                <Text style={styles.logoTextLU}>LU</Text>
+              </View>
+              <Text style={styles.logoTextConnect}>LU CONNECT</Text>
+            </View>
+
+            <View style={styles.adminDivider} />
+
+            <View style={styles.adminProfileWrap}>
+              {profile?.avatar_url ? (
+                <Image source={{ uri: profile.avatar_url }} style={styles.adminAvatar} />
+              ) : (
+                <View style={[styles.adminAvatar, styles.avatarPlaceholder]}>
+                  <Text style={styles.avatarInitial}>{profile?.full_name?.[0] || 'A'}</Text>
+                </View>
+              )}
+              <Text style={styles.adminName}>{profile?.full_name || 'Admin'}</Text>
+              <Text style={styles.adminRole}>SUPER ADMIN</Text>
+            </View>
+
+            <View style={styles.inputWrap}>
+              <Text style={styles.adminAccessTitle}>ADMIN ACCESS</Text>
+              <Text style={styles.adminAccessSub}>Enter the secret code to unlock the hub.</Text>
+              
+              {adminError ? <Text style={styles.adminErrorText}>{adminError}</Text> : null}
+
+              <TextInput
+                style={styles.adminInput}
+                placeholder="X X X X X X"
+                placeholderTextColor="#1f1f1f"
+                autoCapitalize="characters"
+                maxLength={6}
+                value={adminCode}
+                onChangeText={(t) => setAdminCode(t.toUpperCase())}
+              />
+
+              <TouchableOpacity onPress={checkAdminCode} style={styles.adminUnlockBtn} activeOpacity={0.8}>
+                <Text style={styles.adminUnlockText}>UNLOCK</Text>
+                <Ionicons name="arrow-forward" size={18} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity onPress={() => { setShowAdminModal(false); setAdminCode(''); setAdminError(''); }} style={styles.adminCancelBtn}>
+              <Text style={styles.adminCancelText}>Cancel</Text>
+            </TouchableOpacity>
+
+          </ScrollView>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  adminModalContainer: { flex: 1, backgroundColor: '#000' },
+  adminModalContent: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 40 },
+  logoWrapper: { alignItems: 'center', marginBottom: 30 },
+  logoGlow: { position: 'absolute', top: 10, width: 80, height: 80, borderRadius: 40, backgroundColor: 'rgba(239,68,68,0.2)' },
+  logoBox: { width: 90, height: 90, borderRadius: 24, borderWidth: 3, borderColor: '#ef4444', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0a0a0a', marginBottom: 16 },
+  logoTextLU: { color: '#fff', fontSize: 36, fontWeight: '900', letterSpacing: -1 },
+  logoTextConnect: { color: '#ef4444', fontSize: 16, fontWeight: '800', letterSpacing: 4 },
+  adminDivider: { width: '100%', height: 1, backgroundColor: '#1f1f1f', marginBottom: 30 },
+  adminProfileWrap: { alignItems: 'center', marginBottom: 40 },
+  adminAvatar: { width: 80, height: 80, borderRadius: 40, borderWidth: 2, borderColor: '#ef4444', marginBottom: 12 },
+  avatarPlaceholder: { backgroundColor: '#141414', alignItems: 'center', justifyContent: 'center' },
+  avatarInitial: { color: '#ef4444', fontSize: 32, fontWeight: '800' },
+  adminName: { color: '#fff', fontSize: 20, fontWeight: '700', marginBottom: 4 },
+  adminRole: { color: '#6d7382', fontSize: 11, fontWeight: '800', letterSpacing: 2 },
+  inputWrap: { width: '100%', alignItems: 'center' },
+  adminAccessTitle: { color: '#fff', fontSize: 16, fontWeight: '900', letterSpacing: 2, marginBottom: 8 },
+  adminAccessSub: { color: '#6d7382', fontSize: 13, textAlign: 'center', marginBottom: 24 },
+  adminErrorText: { color: '#ef4444', fontSize: 13, fontWeight: '600', marginBottom: 16 },
+  adminInput: { backgroundColor: '#0a0a0a', color: '#ef4444', borderRadius: 16, borderWidth: 1, borderColor: '#1f1f1f', padding: 20, width: '100%', fontSize: 24, textAlign: 'center', letterSpacing: 12, marginBottom: 24 },
+  adminUnlockBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: '#ef4444', width: '100%', padding: 18, borderRadius: 16 },
+  adminUnlockText: { color: '#fff', fontSize: 15, fontWeight: '800', letterSpacing: 2 },
+  adminCancelBtn: { marginTop: 30, padding: 10 },
+  adminCancelText: { color: '#6d7382', fontSize: 14, fontWeight: '600' },
+
   stickyHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 14, backgroundColor: '#000', borderBottomWidth: 1, borderBottomColor: '#1f1f1f', zIndex: 100 },
   brandText: { fontSize: 26, fontWeight: '900', color: '#ef4444', letterSpacing: -1.2 },
   plusBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#141414', alignItems: 'center', justifyContent: 'center' },

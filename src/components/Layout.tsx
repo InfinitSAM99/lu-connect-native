@@ -1,14 +1,20 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
+import { useNavigationState } from '@react-navigation/native';
 import RadialNav from './RadialNav';
+import AdminRadialNav from './AdminRadialNav';
 
 export default function Layout({ children }: { children: React.ReactNode }) {
-  return (
+  const routeName = useNavigationState((state) => state?.routes[state.index]?.name);
+  
+  const isAdminRoute = routeName?.startsWith('Admin');
+  const isReels = routeName === 'Video';
+return (
     <View style={styles.container}>
       <View style={styles.content}>
         {children}
       </View>
-      <RadialNav />
+      {!isReels && (isAdminRoute ? <AdminRadialNav /> : <RadialNav />)}
     </View>
   );
 }

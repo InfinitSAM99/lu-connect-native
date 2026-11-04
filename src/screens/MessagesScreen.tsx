@@ -163,7 +163,7 @@ export default function MessagesScreen({ navigation }: any) {
     
     // 2. Navigate
     readChatsRef.current.add(conv.conversation_id);
-    navigation.navigate('Conversation', { id: conv.conversation_id });
+    navigation.navigate('Conversation', { id: conv.conversation_id, otherUser: conv.other, group: conv.group });
   };
 
   const handleDelete = async (c: any) => {

@@ -1,18 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, TouchableOpacity, Image, StyleSheet, PanResponder, Animated } from 'react-native';
+import { View, Text, TouchableOpacity, Image, StyleSheet, PanResponder, Animated, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import * as Clipboard from 'expo-clipboard';
 import { supabase } from '../lib/supabase';
 import { useAudioPlayer } from 'expo-audio';
 
-export const STICKERS = ['😀','😂','🥰','😍','😎','🤩','😭','😅','😊','🙃','😇','🤔','😴','🤗','😘','🥳','👍','👎','👏','🙌','🤝','💪','🙏','✌️','❤️','💔','💯','🔥','⭐','✨','🎉','🎊','🍕','🍔','☕','🍺','⚽','🏀','🎮','🎵','🐶','🐱','🌹','🌈','☀️','🌙','⚡','💧'];
 
-export const isEmojiOnly = (str: string) => {
-  if (!str) return false;
-  const cleaned = str.replace(/[\s\u200d]/g, '');
-  return cleaned.length > 0 && cleaned.length <= 4 && /^\p{Extended_Pictographic}+$/u.test(cleaned);
-};
 
 export function DoodleBackground() {
   return <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: 'transparent' }} pointerEvents="none" />;
@@ -47,7 +41,6 @@ export function VoiceNotePlayer({ url, isMine }: any) {
     else player.play();
   };
 
-  const pct = duration > 0 ? Math.min(progress / duration, 1) : 0;
   const fmt = (s: number) => {
     if (!isFinite(s) || s < 0) s = 0;
     const m = Math.floor(s / 60);
@@ -55,17 +48,33 @@ export function VoiceNotePlayer({ url, isMine }: any) {
     return `${m}:${sec.toString().padStart(2, '0')}`;
   };
 
+  // Dots to simulate the waveform in the screenshot
+  const totalBars = 20;
+  const filledBars = duration > 0 ? Math.floor((progress / duration) * totalBars) : 0;
+
   return (
-    <View style={[styles.voice, { backgroundColor: isMine ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.3)', minWidth: 180 }]}>
-      <TouchableOpacity onPress={toggle} style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(0,0,0,0.35)', alignItems: 'center', justifyContent: 'center' }}>
-        <Ionicons name={playing ? 'pause' : 'play'} size={14} color="#fff" />
+    <View style={{ flexDirection: 'row', alignItems: 'center', minWidth: 200 }}>
+      <TouchableOpacity onPress={toggle} style={{ padding: 4 }}>
+        <Ionicons name={playing ? 'pause' : 'play'} size={18} color="#fff" style={{ marginLeft: playing ? 0 : 2 }} />
       </TouchableOpacity>
-      <View style={{ flex: 1, marginLeft: 10 }}>
-        <View style={{ height: 3, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.25)', overflow: 'hidden' }}>
-          <View style={{ height: 3, width: `${pct * 100}%`, backgroundColor: '#fff' }} />
-        </View>
-        <Text style={{ color: '#fff', fontSize: 11, marginTop: 5 }}>{fmt(progress)} / {fmt(duration)}</Text>
+      
+      <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', marginLeft: 8, marginRight: 12, height: 20, gap: 3 }}>
+        {Array.from({ length: totalBars }).map((_, i) => (
+          <View 
+            key={i} 
+            style={{ 
+              width: 3, 
+              height: 12, 
+              borderRadius: 1.5, 
+              backgroundColor: i < filledBars ? '#fff' : 'rgba(255,255,255,0.3)' 
+            }} 
+          />
+        ))}
       </View>
+
+      <Text style={{ color: '#fff', fontSize: 11, fontWeight: '600' }}>
+        {fmt(playing || progress > 0 ? progress : duration)}
+      </Text>
     </View>
   );
 }
@@ -96,46 +105,116 @@ export function GroupMembersList({ groupId, myId }: any) {
   );
 }
 
-export function SwipeableMessage({ message: m, profile, deleted, isImage, isAudio, isSticker, onDelete, onReply, onScrollTo, showSenderName, themeObj }: any) {
-  // ✅ Bulletproof rule: 
-  // - Optimistic messages are ALWAYS ours
-  // - Otherwise, compare sender_id with current profile
-  const isMine = m._optimistic === true || (m.sender_id && m.sender_id === profile?.id);
 
-  const [menuOpen, setMenuOpen] = useState(false);
-  const pan = useRef(new Animated.Value(0)).current;
+function renderMessageText(text: string, textColor: string) {
   
+  // Regex to find URLs and deep links
+  const urlRegex = /(https?:\/\/[^\s]+|luconnectnative:\/\/[^\s]+)/g;
+  const parts = text.split(urlRegex);
+
+  return (
+    <Text style={{ color: textColor, fontSize: 14, lineHeight: 20 }}>
+      {parts.map((part, i) => {
+        if (part.match(urlRegex)) {
+          return (
+            <Text key={i} style={{ color: '#3b82f6', textDecorationLine: 'underline' }} onPress={() => Linking.openURL(part)}>
+              {part}
+            </Text>
+          );
+        }
+        return <Text key={i}>{part}</Text>;
+      })}
+    </Text>
+  );
+}
+
+export function SwipeableMessage({ message: m, profile, deleted, isImage, isAudio, onDelete, onReply, onScrollTo, showSenderName, themeObj }: any) {
+  const isMine = m._optimistic === true || (m.sender_id && m.sender_id === profile?.id);
+  const [menuOpen, setMenuOpen] = useState(false);
+  
+  // Animated values for Instagram style swipe
+  const pan = useRef(new Animated.Value(0)).current;
+  const replyIconOpacity = useRef(new Animated.Value(0)).current;
+
   const panResponder = useRef(PanResponder.create({
     onStartShouldSetPanResponder: () => false,
-    onMoveShouldSetPanResponder: (_, g) => g.dx > 10 && Math.abs(g.dx) > Math.abs(g.dy),
-    onPanResponderMove: (_, g) => { if (g.dx > 0 && g.dx < 100) pan.setValue(g.dx); },
+    onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 10 && Math.abs(g.dx) > Math.abs(g.dy),
+    onPanResponderMove: (_, g) => {
+      // Allow swipe in both directions, but dampen it
+      const moveX = g.dx;
+      const dampened = moveX > 0 ? Math.min(moveX, 60) : Math.max(moveX, -60);
+      pan.setValue(dampened);
+      
+      // Fade in the reply icon based on swipe distance
+      const opacity = Math.min(Math.abs(moveX) / 50, 1);
+      replyIconOpacity.setValue(opacity);
+    },
     onPanResponderRelease: (_, g) => {
-      if (g.dx > 50) onReply?.(m);
-      Animated.spring(pan, { toValue: 0, useNativeDriver: true }).start();
+      // If swiped far enough, trigger reply
+      if (Math.abs(g.dx) > 40) {
+        onReply?.(m);
+      }
+      // Snap back to center smoothly
+      Animated.parallel([
+        Animated.spring(pan, { toValue: 0, useNativeDriver: true, friction: 6 }),
+        Animated.timing(replyIconOpacity, { toValue: 0, duration: 200, useNativeDriver: true })
+      ]).start();
     },
   })).current;
 
-  const bubbleColor = deleted ? '#141414' : isImage ? 'transparent' : isMine ? (themeObj?.myBubble || '#ef4444') : (themeObj?.theirBubble || '#141414');
+  const bubbleColor = deleted ? '#141414' : isImage ? 'transparent' : isMine ? (themeObj?.myBubble || '#ef4444') : (themeObj?.theirBubble || '#262626');
   const textColor = themeObj?.text || '#fff';
 
   return (
-    <View style={{ flexDirection: 'row', justifyContent: isMine ? 'flex-end' : 'flex-start', marginBottom: 4 }}>
+    <View style={{ flexDirection: 'row', justifyContent: isMine ? 'flex-end' : 'flex-start', marginBottom: 8 }}>
+      
+      {/* REPLY ICON (Appears on swipe) */}
+      <Animated.View style={{ 
+        position: 'absolute', 
+        [isMine ? 'right' : 'left']: 10, 
+        top: '50%', 
+        marginTop: -12,
+        opacity: replyIconOpacity,
+        zIndex: -1
+      }}>
+        <Ionicons name="arrow-undo" size={24} color="#ef4444" />
+      </Animated.View>
+
       <Animated.View style={{ maxWidth: '75%', transform: [{ translateX: pan }] }} {...panResponder.panHandlers}>
         <TouchableOpacity activeOpacity={0.9} onLongPress={() => !deleted && setMenuOpen(true)} delayLongPress={400}>
-          <View style={[styles.bubble, { backgroundColor: bubbleColor }, isImage && { padding: 0 }]}>
-            {showSenderName && <Text style={{ color: '#ef4444', fontSize: 12, fontWeight: '700', marginBottom: 2 }}>{m.sender?.full_name || 'User'}</Text>}
-            {m.parent && !deleted && (
-              <View style={{ borderLeftWidth: 3, borderLeftColor: 'rgba(255,255,255,0.6)', paddingLeft: 6, marginBottom: 4 }}>
-                <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 11 }}>{m.parent.sender?.full_name || 'User'}</Text>
-                <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11 }} numberOfLines={1}>{m.parent.is_deleted ? 'Deleted' : m.parent.content || '(media)'}</Text>
+          
+          {/* REPLY QUOTE (Outside the bubble) */}
+          {m.parent && !deleted && (
+            <View style={{ 
+              flexDirection: 'row', 
+              alignItems: 'center', 
+              marginBottom: 4, 
+              paddingLeft: isMine ? 0 : 8, 
+              paddingRight: isMine ? 8 : 0,
+              justifyContent: isMine ? 'flex-end' : 'flex-start'
+            }}>
+              <View style={{ width: 3, height: '100%', backgroundColor: '#6d7382', borderRadius: 2, marginRight: 8 }} />
+              <View>
+                <Text style={{ color: '#aab0bd', fontSize: 12, fontWeight: '700' }}>
+                  {m.parent.sender?.full_name || 'User'}
+                </Text>
+                <Text style={{ color: '#6d7382', fontSize: 13 }} numberOfLines={1}>
+                  {m.parent.is_deleted ? 'Deleted message' : m.parent.content || 'Media'}
+                </Text>
               </View>
-            )}
+            </View>
+          )}
+
+          {/* MAIN BUBBLE */}
+          <View style={[styles.instaBubble, { backgroundColor: bubbleColor }, isImage && { padding: 0 }]}>
+            {showSenderName && <Text style={{ color: '#ef4444', fontSize: 12, fontWeight: '700', marginBottom: 2 }}>{m.sender?.full_name || 'User'}</Text>}
             {deleted && <Text style={{ color: '#6d7382', fontSize: 13, fontStyle: 'italic' }}>Message deleted</Text>}
-            {isImage && m.attachment_url && <Image source={{ uri: m.attachment_url }} style={{ width: 220, height: 220, borderRadius: 12, margin: 4 }} resizeMode="cover" />}
+            {isImage && m.attachment_url && <Image source={{ uri: m.attachment_url }} style={{ width: 220, height: 220, borderRadius: 18, margin: 2 }} resizeMode="cover" />}
             {isAudio && m.attachment_url && <VoiceNotePlayer url={m.attachment_url} isMine={isMine} />}
-            {!deleted && !isImage && !isAudio && <Text style={{ color: textColor, fontSize: isSticker ? 32 : 14, lineHeight: isSticker ? 40 : 20 }}>{m.content}</Text>}
-            {!deleted && !isSticker && (
-              <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 10, alignSelf: 'flex-end', marginTop: 2 }}>
+            {!deleted && !isImage && !isAudio && renderMessageText(m.content, textColor)}
+            
+            {!deleted && (
+              <Text style={{ color: isMine ? 'rgba(255,255,255,0.7)' : '#aab0bd', fontSize: 10, alignSelf: 'flex-end', marginTop: 4 }}>
                 {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 {isMine && !m._optimistic && <Text> {m.read_at ? '✓✓' : '✓'}</Text>}
               </Text>
@@ -144,24 +223,37 @@ export function SwipeableMessage({ message: m, profile, deleted, isImage, isAudi
         </TouchableOpacity>
       </Animated.View>
 
+      {/* LONG PRESS MENU */}
       {menuOpen && (
-        <View style={{ position: 'absolute', top: -44, right: isMine ? 0 : undefined, left: isMine ? undefined : 0, backgroundColor: '#0a0a0a', borderRadius: 22, flexDirection: 'row', padding: 4, borderWidth: 1, borderColor: '#1f1f1f', zIndex: 10 }}>
-          <TouchableOpacity onPress={() => { setMenuOpen(false); onReply?.(m); }} style={{ paddingHorizontal: 10, paddingVertical: 6 }}>
-            <Ionicons name="return-down-back" size={16} color="#fff" />
+        <View style={{ 
+          position: 'absolute', 
+          top: -50, 
+          right: isMine ? 0 : undefined, 
+          left: isMine ? undefined : 0, 
+          backgroundColor: '#262626', 
+          borderRadius: 20, 
+          flexDirection: 'row', 
+          paddingHorizontal: 6, 
+          paddingVertical: 6,
+          shadowColor: '#000',
+          shadowOpacity: 0.5,
+          shadowRadius: 10,
+          elevation: 10,
+          zIndex: 10
+        }}>
+          <TouchableOpacity onPress={() => { setMenuOpen(false); onReply?.(m); }} style={{ paddingHorizontal: 12, paddingVertical: 8 }}>
+            <Ionicons name="arrow-undo" size={18} color="#fff" />
           </TouchableOpacity>
-          {!deleted && m.content && !isSticker && !isImage && !isAudio && (
-            <TouchableOpacity onPress={() => { setMenuOpen(false); Clipboard.setStringAsync(m.content); }} style={{ paddingHorizontal: 10, paddingVertical: 6 }}>
-              <Ionicons name="copy-outline" size={16} color="#fff" />
+          {!deleted && m.content && !isImage && !isAudio && (
+            <TouchableOpacity onPress={() => { setMenuOpen(false); Clipboard.setStringAsync(m.content); }} style={{ paddingHorizontal: 12, paddingVertical: 8 }}>
+              <Ionicons name="copy-outline" size={18} color="#fff" />
             </TouchableOpacity>
           )}
           {isMine && !deleted && (
-            <TouchableOpacity onPress={() => { setMenuOpen(false); onDelete?.(m); }} style={{ paddingHorizontal: 10, paddingVertical: 6 }}>
-              <Ionicons name="trash-outline" size={16} color="#ef4444" />
+            <TouchableOpacity onPress={() => { setMenuOpen(false); onDelete?.(m); }} style={{ paddingHorizontal: 12, paddingVertical: 8 }}>
+              <Ionicons name="trash-outline" size={18} color="#ef4444" />
             </TouchableOpacity>
           )}
-          <TouchableOpacity onPress={() => setMenuOpen(false)} style={{ paddingHorizontal: 10, paddingVertical: 6 }}>
-            <Ionicons name="close" size={16} color="#6d7382" />
-          </TouchableOpacity>
         </View>
       )}
     </View>
@@ -169,6 +261,6 @@ export function SwipeableMessage({ message: m, profile, deleted, isImage, isAudi
 }
 
 const styles = StyleSheet.create({
-  bubble: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 14 },
+  instaBubble: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20 },
   voice: { flexDirection: 'row', alignItems: 'center', padding: 10, borderRadius: 12 },
 });

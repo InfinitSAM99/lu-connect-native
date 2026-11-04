@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, Image, StyleSheet, Dimensions } from 'rea
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { useNavigation } from '@react-navigation/native';
 import VerifiedBadge from './VerifiedBadge';
 import { tapLight } from '../lib/haptics';
 import { playLike } from '../lib/sounds';
@@ -19,10 +20,28 @@ function timeAgo(date: string) {
   if (s < 3600) return Math.floor(s / 60) + 'm';
   if (s < 86400) return Math.floor(s / 3600) + 'h';
   if (s < 604800) return Math.floor(s / 86400) + 'd';
-  return new Date(date).toLocaleDateString();
+  if (s < 2592000) return Math.floor(s / 604800) + 'w';
+  if (s < 31536000) return Math.floor(s / 2592000) + 'mo';
+  return Math.floor(s / 31536000) + 'y';
+}
+
+function renderTextWithMentions(text: string) {
+  if (!text) return null;
+  const parts = text.split(/(@[a-zA-Z0-9_]+)/g);
+  return (
+    <Text style={{ color: '#fff', fontSize: 15, lineHeight: 22 }}>
+      {parts.map((part, i) => {
+        if (part.startsWith('@')) {
+          return <Text key={i} style={{ color: '#3b82f6', fontWeight: '600' }}>{part}</Text>;
+        }
+        return <Text key={i}>{part}</Text>;
+      })}
+    </Text>
+  );
 }
 
 export default function PostCard({ post, onUpdate, onCommentOpen, onMenu }: any) {
+  const navigation = useNavigation();
   const { profile } = useAuth();
   const isAnon = !!post?.is_anonymous;
   const author = isAnon ? { id: null, full_name: 'Anonymous Student', avatar_url: null, is_verified: false } : post?.profiles;
@@ -42,18 +61,15 @@ export default function PostCard({ post, onUpdate, onCommentOpen, onMenu }: any)
     const nextLiked = !localLiked;
     const nextLikes = localLikes + (nextLiked ? 1 : -1);
 
-    // Optimistic UI
     setLocalLiked(nextLiked);
     setLocalLikes(nextLikes);
     onUpdate?.(post.id, { liked: nextLiked, like_count: nextLikes });
 
-    // DB sync
     try {
       if (nextLiked) {
         try { playLike(); } catch {}
         const { error } = await supabase.from('reactions').insert({ post_id: post.id, user_id: profile.id, reaction_type: 'like' });
-        if (error && error.code !== '23505') { // 23505 = duplicate; ignore
-          console.warn('Like error:', error.message);
+        if (error && error.code !== '23505') {
           setLocalLiked(false);
           setLocalLikes(nextLikes - 1);
           onUpdate?.(post.id, { liked: false, like_count: nextLikes - 1 });
@@ -82,22 +98,29 @@ export default function PostCard({ post, onUpdate, onCommentOpen, onMenu }: any)
     <View style={styles.card}>
       {/* HEADER */}
       <View style={styles.header}>
-        {isAnon ? (
-          <View style={[styles.avatar, { backgroundColor: '#1a0d2e', alignItems: 'center', justifyContent: 'center' }]}>
-            <Ionicons name="eye-off" size={20} color="#a855f7" />
+        <TouchableOpacity
+          style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
+          onPress={() => !isAnon && navigation.navigate('Profile', { id: post.author_id })}
+          activeOpacity={0.7}
+          disabled={isAnon}
+        >
+          {isAnon ? (
+            <View style={[styles.avatar, { backgroundColor: '#1a0d2e', alignItems: 'center', justifyContent: 'center' }]}>
+              <Ionicons name="eye-off" size={20} color="#a855f7" />
+            </View>
+          ) : (
+            <Image source={{ uri: author?.avatar_url || `https://api.dicebear.com/7.x/initials/svg?seed=${author?.full_name || 'U'}` }} style={styles.avatar} />
+          )}
+          <View style={{ flex: 1, marginLeft: 10 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Text style={styles.name}>{isAnon ? 'Anonymous' : (author?.full_name || 'Student')}</Text>
+              {author?.is_verified && <VerifiedBadge size={14} />}
+              {author?.is_broadcast_only && <Ionicons name="megaphone" size={14} color="#ef4444" style={{ marginLeft: 2 }} />}
+            </View>
+            <Text style={styles.time}>{timeAgo(post.created_at)}{post.is_edited ? ' · edited' : ''}</Text>
           </View>
-        ) : (
-          <Image source={{ uri: author?.avatar_url || `https://api.dicebear.com/7.x/initials/svg?seed=${author?.full_name || 'U'}` }} style={styles.avatar} />
-        )}
-        <View style={{ flex: 1, marginLeft: 10 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-            <Text style={styles.name}>{author?.full_name || 'Student'}</Text>
-            {author?.is_verified && <VerifiedBadge size={14} />}
-            {author?.is_broadcast_only && <OfficialBadge />}
-          </View>
-          <Text style={styles.time}>{timeAgo(post.created_at)}{post.is_edited ? ' · edited' : ''}</Text>
-        </View>
-        <TouchableOpacity onPress={() => onMenu?.(post)} style={{ padding: 6 }}>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => onMenu?.(post)} style={{ padding: 6, marginLeft: 'auto' }}>
           <Ionicons name="ellipsis-horizontal" size={20} color="#fff" />
         </TouchableOpacity>
       </View>
@@ -106,7 +129,7 @@ export default function PostCard({ post, onUpdate, onCommentOpen, onMenu }: any)
       {!!post.content && (
         <View style={{ paddingHorizontal: 4, marginBottom: 10 }}>
           <Text style={styles.content}>
-            {contentLong && !expanded ? post.content.slice(0, COLLAPSE_CHAR_LIMIT) + '…' : post.content}
+            {renderTextWithMentions(contentLong && !expanded ? post.content.slice(0, COLLAPSE_CHAR_LIMIT) + '…' : post.content)}
           </Text>
           {contentLong && (
             <TouchableOpacity onPress={() => setExpanded(!expanded)}>

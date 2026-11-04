@@ -49,6 +49,7 @@ async function runSearch(tab: string, q: string, myId: string) {
   return [];
 }
 
+
 export default function SearchScreen({ navigation }: any) {
   const { profile } = useAuth();
   const myId = profile?.id || null;
@@ -74,13 +75,28 @@ export default function SearchScreen({ navigation }: any) {
     queryKey: ['search', tab, debounced, myId],
     enabled: debounced.length > 0 || tab === 'people',
     staleTime: 30000,
-    queryFn: () => runSearch(tab, debounced, myId),
+    queryFn: async () => {
+      if (debounced) saveRecent(debounced);
+      return runSearch(tab, debounced, myId);
+    },
   });
 
   const results = searchQuery.data || [];
   const loading = searchQuery.isFetching;
   const showEmpty = !debounced && tab !== 'people' && results.length === 0;
   const showNoResults = (debounced || tab === 'people') && !loading && results.length === 0 && searchQuery.data !== undefined;
+
+  const saveRecent = async (term: string) => {
+    if (!term.trim()) return;
+    const updated = [term, ...recent.filter((r) => r.q !== term)].slice(0, 5);
+    const recentItems = updated.map((r) => ({
+      tab: r.tab || 'people',
+      q: r.q,
+      name: r.q,
+    }));
+    setRecent(recentItems);
+    await AsyncStorage.setItem(RECENT_KEY, JSON.stringify(recentItems));
+  };
 
   const applyRecent = (entry: any) => {
     setTab(entry.tab);
@@ -201,8 +217,7 @@ export default function SearchScreen({ navigation }: any) {
         </View>
       )}
 
-      {results.length > 0 && (
-        <FlatList
+            {results.length > 0 && (<FlatList
           data={results}
           keyExtractor={(item: any) => item.id}
           renderItem={renderResult}

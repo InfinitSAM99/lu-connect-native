@@ -1,245 +1,397 @@
-import React, { useState, useRef } from 'react';
-import { View, Text, StyleSheet, Dimensions, TouchableOpacity, Image, FlatList, ActivityIndicator } from 'react-native';
-import { useVideoPlayer, VideoView } from 'expo-video';
+import React, { useEffect, useState, useRef } from 'react';
+import { 
+  View, Text, StyleSheet, FlatList, TouchableOpacity, 
+  Image, Dimensions, ActivityIndicator, Share, TextInput, 
+  Modal, KeyboardAvoidingView, Platform, ScrollView 
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import UploadReelModal from './UploadReelModal';
-import CommentDrawer from '../components/CommentDrawer';
 
-const { height: SCREEN_H, width: SCREEN_W } = Dimensions.get('window');
+const { height: SCREEN_H } = Dimensions.get('window');
 
-async function loadReels(myId: string) {
-  const { data, error } = await supabase
-    .from('post_media')
-    .select(`
-      media_url,
-      posts:post_id(
-        id,
-        content,
-        created_at,
-        author_id,
-        bot_like_count,
-        bot_comment_count,
-        profiles:author_id(id, full_name, avatar_url)
-      )
-    `)
-    .eq('media_type', 'video')
-    .order('id', { ascending: false })
-    .limit(20);
-
-  if (error) throw error;
-
-  const postIds = (data || []).map((row: any) => row.posts?.id).filter(Boolean);
-
-  // Fetch real likes and comments
-  const [likesRes, commentsRes, myLikesRes] = await Promise.all([
-    supabase.from('reactions').select('post_id').in('post_id', postIds),
-    supabase.from('comments').select('post_id').in('post_id', postIds).eq('is_deleted', false),
-    supabase.from('reactions').select('post_id').eq('user_id', myId).in('post_id', postIds)
-  ]);
-
-  const likeCounts: any = {};
-  (likesRes.data || []).forEach((r: any) => { likeCounts[r.post_id] = (likeCounts[r.post_id] || 0) + 1; });
-  
-  const commentCounts: any = {};
-  (commentsRes.data || []).forEach((c: any) => { commentCounts[c.post_id] = (commentCounts[c.post_id] || 0) + 1; });
-  
-  const myLikes = new Set((myLikesRes.data || []).map((r: any) => r.post_id));
-
-  return (data || []).map((row: any) => ({
-    id: row.posts.id,
-    author_id: row.posts.author_id,
-    video_url: row.media_url,
-    caption: row.posts.content || '',
-    author: row.posts.profiles || { full_name: 'Unknown', avatar_url: null },
-    music: 'Original Audio',
-    likes: (likeCounts[row.posts.id] || 0) + (row.posts.bot_like_count || 0),
-    comments: (commentCounts[row.posts.id] || 0) + (row.posts.bot_comment_count || 0),
-    liked: myLikes.has(row.posts.id),
-  }));
+function formatNumber(num: number) {
+  if (!num) return "0";
+  if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+  if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+  return String(num);
 }
 
-function VideoItem({ item, isActive, onComment, navigation }: { item: any; isActive: boolean; onComment: any; navigation: any }) {
-  const insets = useSafeAreaInsets();
+function ReelItem({ item, isActive, navigation, onVideoEnd, onOpenComments }: any) {
   const { profile } = useAuth();
-  const [liked, setLiked] = useState(item.liked);
-  const [likeCount, setLikeCount] = useState(item.likes);
+  const [liked, setLiked] = useState(item.is_liked || false);
+  const [likes, setLikes] = useState(item.likes_count || 0);
+  const [isFollowing, setIsFollowing] = useState(item.is_following || false);
+  
+  const [showEnd, setShowEnd] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(3);
+  const timerRef = useRef<any>(null);
+
   const player = useVideoPlayer(item.video_url, (p) => {
-    p.loop = true;
+    p.loop = false;
     p.muted = false;
   });
 
-  const toggleLike = async () => {
-    if (!profile) return;
-    const newLiked = !liked;
-    setLiked(newLiked);
-    setLikeCount((c: number) => c + (newLiked ? 1 : -1));
-
-    if (newLiked) {
-      await supabase.from('reactions').insert({ post_id: item.id, user_id: profile.id, reaction_type: 'like' });
+  useEffect(() => {
+    if (isActive) {
+      player.currentTime = 0;
+      player.play();
+      setShowEnd(false);
+      
+      // --- TRACK VIEW FOR DASHBOARD ---
+      if (profile?.id) {
+        supabase.from('reel_views').insert({ reel_id: item.id, viewer_id: profile.id })
+          .then(({ error }) => { if(error) console.log("View tracking error:", error.message) });
+      }
+      
     } else {
-      await supabase.from('reactions').delete().eq('post_id', item.id).eq('user_id', profile.id);
+      player.pause();
+      if (timerRef.current) clearInterval(timerRef.current);
+    }
+  }, [isActive, player, profile?.id, item.id]);
+
+  useEffect(() => {
+    const endSub = player.addListener('playToEnd', () => {
+      if (isActive) {
+        setShowEnd(true);
+        setTimeLeft(3);
+        timerRef.current = setInterval(() => {
+          setTimeLeft((prev) => {
+            if (prev <= 1) {
+              clearInterval(timerRef.current);
+              onVideoEnd();
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+      }
+    });
+    return () => {
+      endSub.remove();
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [isActive, player, onVideoEnd]);
+
+  const saveVideo = async () => {
+    try {
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status !== 'granted') return alert('Need permission to save.');
+      
+      const fileUri = FileSystem.documentDirectory + 'saved-video.mp4';
+      const { uri } = await FileSystem.downloadAsync(item.video_url, fileUri);
+      await MediaLibrary.saveToLibraryAsync(uri);
+      alert('Video saved to gallery!');
+    } catch (e) {
+      console.log(e);
+      alert('Failed to save video.');
     }
   };
 
-  React.useEffect(() => {
-    if (isActive) player.play();
-    else player.pause();
-  }, [isActive, player]);
+  
+  const downloadVideo = async () => {
+    try {
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status !== 'granted') return alert('Permission needed to save video.');
+      
+      const fileUri = FileSystem.documentDirectory + `reel-${item.id}.mp4`;
+      const { uri } = await FileSystem.downloadAsync(item.video_url, fileUri);
+      await MediaLibrary.saveToLibraryAsync(uri);
+      alert('Video downloaded to gallery!');
+    } catch (e) {
+      alert('Failed to download video.');
+    }
+  };
+
+  const toggleLike = async () => {
+    if (!profile?.id) return;
+    const nextLiked = !liked;
+    setLiked(nextLiked);
+    setLikes(prev => prev + (nextLiked ? 1 : -1));
+
+    try {
+      if (nextLiked) {
+        await supabase.from('reel_likes').insert({ reel_id: item.id, user_id: profile.id });
+        await supabase.from('reels').update({ likes_count: likes + 1 }).eq('id', item.id);
+      } else {
+        await supabase.from('reel_likes').delete().match({ reel_id: item.id, user_id: profile.id });
+        await supabase.from('reels').update({ likes_count: Math.max(0, likes - 1) }).eq('id', item.id);
+      }
+    } catch (error) {
+      console.error("Error updating like:", error);
+    }
+  };
+
+  const toggleFollow = async () => {
+    if (!profile?.id || profile.id === item.user_id) return;
+    const nextFollow = !isFollowing;
+    setIsFollowing(nextFollow);
+    try {
+      if (nextFollow) await supabase.from('follows').insert({ follower_id: profile.id, following_id: item.user_id });
+      else await supabase.from('follows').delete().match({ follower_id: profile.id, following_id: item.user_id });
+    } catch (error) { console.error("Error toggling follow:", error); }
+  };
+
+  const handleShare = async () => {
+    try {
+      await Share.share({ message: `Check out this reel by @${item.profiles?.full_name || 'Student'}!`, url: item.video_url });
+    } catch (error) { console.error(error); }
+  };
 
   return (
-    <View style={[styles.videoContainer, { height: SCREEN_H }]}>
-      <VideoView
-        player={player}
-        style={StyleSheet.absoluteFill}
-        contentFit="contain"
-        nativeControls={false}
-      />
+    <View style={{ height: SCREEN_H, width: '100%', backgroundColor: '#000' }}>
+      <VideoView player={player} style={{ width: '100%', height: '100%' }} contentFit="cover" nativeControls={false} />
+      
+      {showEnd && (
+        <View style={styles.endScreenOverlay}>
+          <Ionicons name="play-circle" size={80} color="#ef4444" />
+          <Text style={styles.endText}>Next in {timeLeft}s</Text>
+        </View>
+      )}
 
-      <LinearGradient
-        colors={['transparent', 'rgba(0,0,0,0.85)']}
-        style={styles.gradient}
-        pointerEvents="none"
-      />
+      {/* Gradient only at the bottom to keep text readable */}
+      <LinearGradient colors={['transparent', 'rgba(0,0,0,0.8)']} style={styles.bottomGradient} pointerEvents="none" />
 
-      <View style={[styles.actions, { bottom: insets.bottom + 120 }]}>
-        <TouchableOpacity onPress={toggleLike} style={styles.actionBtn}>
-          <Ionicons name={liked ? 'heart' : 'heart-outline'} size={32} color={liked ? '#ef4444' : '#fff'} />
-          <Text style={styles.actionText}>{likeCount}</Text>
+      {/* RIGHT ACTION BAR */}
+      <View style={styles.rightActions}>
+        <TouchableOpacity style={styles.actionBtn} onPress={toggleLike}>
+          <Ionicons name={liked ? "heart" : "heart-outline"} size={38} color={liked ? '#ef4444' : '#fff'} />
+          <Text style={styles.actionText}>{formatNumber(likes)}</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => onComment(item)} style={styles.actionBtn}>
-          <Ionicons name="chatbubble-outline" size={30} color="#fff" />
-          <Text style={styles.actionText}>{item.comments}</Text>
+        
+        <TouchableOpacity style={styles.actionBtn} onPress={() => onOpenComments(item)}>
+          <Ionicons name="chatbubble-outline" size={34} color="#fff" />
+          <Text style={styles.actionText}>{formatNumber(item.comments_count || 0)}</Text>
         </TouchableOpacity>
+        
+        <TouchableOpacity style={styles.actionBtn} onPress={handleShare}>
+          <Ionicons name="arrow-redo-outline" size={36} color="#fff" />
+          <Text style={styles.actionText}>{formatNumber(item.shares_count || 0)}</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity style={styles.actionBtn}>
-          <Ionicons name="paper-plane-outline" size={30} color="#fff" />
-          <Text style={styles.actionText}>Share</Text>
+          <Ionicons name="ellipsis-horizontal" size={30} color="#fff" />
         </TouchableOpacity>
-        {item.author_id === profile?.id && (
-          <TouchableOpacity onPress={() => navigation.navigate('GetBoosted')} style={styles.actionBtn}>
-            <Ionicons name="rocket-outline" size={28} color="#ef4444" />
-            <Text style={[styles.actionText, { color: '#ef4444' }]}>Boost</Text>
-          </TouchableOpacity>
-        )}
+        
+        <View style={styles.smallAvatarContainer}>
+          <Image source={{ uri: item.profiles?.avatar_url || `https://api.dicebear.com/7.x/initials/svg?seed=${item.profiles?.full_name || 'User'}` }} style={styles.smallAvatar} />
+        </View>
       </View>
 
-      <View style={[styles.bottomInfo, { bottom: insets.bottom + 30 }]}>
-        <View style={styles.authorRow}>
-          <Image
-            source={{ uri: item.author.avatar_url || `https://api.dicebear.com/7.x/initials/svg?seed=${item.author.full_name}` }}
-            style={[styles.avatar, { backgroundColor: '#141414' }]}
-          />
-          <Text style={styles.authorName}>{item.author.full_name}</Text>
+      {/* BOTTOM INFO (Pushed down since there is no bottom nav) */}
+      <View style={styles.bottomInfo}>
+        <View style={styles.userRow}>
+          <TouchableOpacity style={styles.userProfileLink} onPress={() => navigation.navigate('Profile', { id: item.user_id })}>
+            <Image source={{ uri: item.profiles?.avatar_url || `https://api.dicebear.com/7.x/initials/svg?seed=${item.profiles?.full_name || 'User'}` }} style={styles.avatar} />
+            <Text style={styles.username}>{item.profiles?.full_name?.replace(/\s+/g, '').toLowerCase() || 'user'}_mfine</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={styles.followBtn} onPress={toggleFollow}>
+            <Text style={styles.followText}>{isFollowing ? 'Following' : 'Follow'}</Text>
+          </TouchableOpacity>
         </View>
-        {item.caption ? <Text style={styles.caption} numberOfLines={2}>{item.caption}</Text> : null}
-        <View style={styles.musicRow}>
-          <Ionicons name="musical-notes" size={14} color="#fff" />
-          <Text style={styles.musicText} numberOfLines={1}>{item.music}</Text>
-        </View>
+        <Text style={styles.caption} numberOfLines={2}>{item.caption}</Text>
       </View>
     </View>
   );
 }
 
-export default function VideoScreen() {
-  const navigation = useNavigation();
-  const [activeIndex, setActiveIndex] = useState(0);
-  const [uploadOpen, setUploadOpen] = useState(false);
-  const [commentPost, setCommentPost] = useState<any>(null);
-  const { profile } = useAuth();
-  const insets = useSafeAreaInsets();
-  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 80 }).current;
+// --- COMMENT DRAWER COMPONENT ---
+function CommentDrawer({ isVisible, onClose, reel, profile }: any) {
+  const [comments, setComments] = useState<any[]>([]);
+  const [newComment, setNewComment] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const { data: reels, isLoading, refetch } = useQuery({
-    queryKey: ['reels'],
-    queryFn: loadReels,
-  });
+  useEffect(() => {
+    if (isVisible && reel) {
+      loadComments();
+    }
+  }, [isVisible, reel]);
+
+  const loadComments = async () => {
+    setLoading(true);
+    const { data } = await supabase
+      .from('reel_comments')
+      .select('*, profiles:user_id(full_name, avatar_url)')
+      .eq('reel_id', reel.id)
+      .order('created_at', { ascending: true });
+    if (data) setComments(data);
+    setLoading(false);
+  };
+
+  const postComment = async () => {
+    if (!newComment.trim() || !profile?.id) return;
+    const commentText = newComment;
+    setNewComment('');
+    
+    const tempComment = {
+      id: Date.now().toString(),
+      text: commentText,
+      created_at: new Date().toISOString(),
+      profiles: { full_name: profile.full_name, avatar_url: profile.avatar_url }
+    };
+    setComments(prev => [...prev, tempComment]);
+
+    await supabase.from('reel_comments').insert({
+      reel_id: reel.id,
+      user_id: profile.id,
+      text: commentText
+    });
+  };
+
+  if (!isVisible) return null;
+
+  return (
+    <Modal visible={isVisible} animationType="slide" transparent>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalOverlay}>
+        <TouchableOpacity style={styles.modalBackdrop} onPress={onClose} activeOpacity={1} />
+        
+        <View style={styles.commentSheet}>
+          <View style={styles.commentHeader}>
+            <Text style={styles.commentTitle}>{comments.length} comments</Text>
+            <TouchableOpacity onPress={onClose}>
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.commentList}>
+            {comments.map((c, index) => (
+              <View key={c.id || index} style={styles.commentRow}>
+                <Image source={{ uri: c.profiles?.avatar_url || `https://api.dicebear.com/7.x/initials/svg?seed=${c.profiles?.full_name || 'U'}` }} style={styles.commentAvatar} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.commentUser}>{c.profiles?.full_name || 'User'}</Text>
+                  <Text style={styles.commentText}>{c.text}</Text>
+                </View>
+              </View>
+            ))}
+          </ScrollView>
+
+          <View style={styles.commentInputRow}>
+            <Image source={{ uri: profile?.avatar_url || `https://api.dicebear.com/7.x/initials/svg?seed=${profile?.full_name || 'Me'}` }} style={styles.commentAvatar} />
+            <TextInput
+              style={styles.commentInput}
+              placeholder="Add a comment..."
+              placeholderTextColor="#888"
+              value={newComment}
+              onChangeText={setNewComment}
+              multiline
+            />
+            <TouchableOpacity onPress={postComment}>
+              <Text style={[styles.postBtn, { opacity: newComment.trim() ? 1 : 0.4 }]}>Post</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+export default function VideoScreen({ navigation }: any) {
+  const { profile } = useAuth();
+  const [reels, setReels] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const flatListRef = useRef<FlatList>(null);
+  
+  const [activeReelForComments, setActiveReelForComments] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from('reels').select('*, profiles:user_id(full_name, avatar_url)').order('created_at', { ascending: false });
+      if (data) setReels(data);
+      setLoading(false);
+    })();
+  }, []);
 
   const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
     if (viewableItems.length > 0) setActiveIndex(viewableItems[0].index);
   }).current;
 
-  const items = reels || [];
+  const viewabilityConfig = useRef({ viewAreaCoveragePercentThreshold: 50 }).current;
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#ef4444" />
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
-      <View style={[styles.header, { paddingTop: insets.top + 12, flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16 }]}>
-        <View style={{ width: 44 }} />
-        <Text style={styles.headerTitle}>Reels</Text>
-        <TouchableOpacity
-          onPress={() => setUploadOpen(true)}
-          style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#ef4444', alignItems: 'center', justifyContent: 'center' }}
-        >
-          <Ionicons name="add" size={26} color="#fff" />
-        </TouchableOpacity>
-      </View>
-
-      {isLoading ? (
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <ActivityIndicator color="#ef4444" />
-        </View>
-      ) : items.length === 0 ? (
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40 }}>
-          <Ionicons name="videocam-off" size={60} color="#6d7382" />
-          <Text style={{ color: '#fff', fontSize: 18, fontWeight: '700', marginTop: 16 }}>No reels yet</Text>
-          <Text style={{ color: '#6d7382', fontSize: 13, textAlign: 'center', marginTop: 8 }}>Be the first to post a reel by tapping the + button</Text>
-        </View>
-      ) : (
-        <FlatList
-          data={items}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item, index }) => <VideoItem item={item} isActive={index === activeIndex} onComment={setCommentPost} navigation={navigation} />}
-          pagingEnabled
-          showsVerticalScrollIndicator={false}
-          snapToInterval={SCREEN_H}
-          decelerationRate="fast"
-          viewabilityConfig={viewabilityConfig}
-          onViewableItemsChanged={onViewableItemsChanged}
-          getItemLayout={(_, index) => ({ length: SCREEN_H, offset: SCREEN_H * index, index })}
-        />
-      )}
-
-      <UploadReelModal
-        open={uploadOpen}
-        onClose={() => setUploadOpen(false)}
-        onUploaded={() => {
-          refetch();
-          setUploadOpen(false);
-        }}
+      <FlatList
+        ref={flatListRef}
+        data={reels}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item, index }) => (
+          <ReelItem 
+            item={item} 
+            isActive={index === activeIndex} 
+            navigation={navigation} 
+            onOpenComments={(reel: any) => setActiveReelForComments(reel)}
+            onVideoEnd={() => {
+              if (index < reels.length - 1) flatListRef.current?.scrollToIndex({ index: index + 1, animated: true });
+            }} 
+          />
+        )}
+        pagingEnabled
+        showsVerticalScrollIndicator={false}
+        snapToInterval={SCREEN_H}
+        snapToAlignment="start"
+        decelerationRate="fast"
+        onViewableItemsChanged={onViewableItemsChanged}
+        viewabilityConfig={viewabilityConfig}
+        getItemLayout={(_, index) => ({ length: SCREEN_H, offset: SCREEN_H * index, index })}
       />
 
-      {commentPost && (
-        <CommentDrawer
-          open={!!commentPost}
-          post={commentPost}
-          onClose={() => {
-            setCommentPost(null);
-            refetch();
-          }}
-        />
-      )}
+      <CommentDrawer 
+        isVisible={!!activeReelForComments} 
+        onClose={() => setActiveReelForComments(null)} 
+        reel={activeReelForComments} 
+        profile={profile} 
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  header: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10, alignItems: 'center', paddingBottom: 12 },
-  headerTitle: { color: '#fff', fontSize: 20, fontWeight: '800' },
-  videoContainer: { width: SCREEN_W, justifyContent: 'flex-end' },
-  gradient: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 400 },
-  actions: { position: 'absolute', right: 12, alignItems: 'center', gap: 20 },
+  bottomGradient: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 250, zIndex: 5 },
+  
+  // Pushed up to leave space for phone navigation bar (Safe Area)
+  rightActions: { position: 'absolute', right: 12, bottom: 80, alignItems: 'center', gap: 22, zIndex: 15 },
   actionBtn: { alignItems: 'center', gap: 4 },
-  actionText: { color: '#fff', fontSize: 11, fontWeight: '600' },
-  bottomInfo: { position: 'absolute', left: 16, right: 90, gap: 8 },
-  authorRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4 },
+  actionText: { color: '#fff', fontSize: 13, fontWeight: '600', textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 4 },
+  smallAvatarContainer: { marginTop: 10, padding: 6, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 10 },
+  smallAvatar: { width: 28, height: 28, borderRadius: 6 },
+  
+  // Pushed down to the bottom of the screen
+  bottomInfo: { position: 'absolute', bottom: 20, left: 16, right: 80, zIndex: 15 },
+  userRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10 },
+  userProfileLink: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   avatar: { width: 36, height: 36, borderRadius: 18, borderWidth: 1.5, borderColor: '#fff' },
-  authorName: { color: '#fff', fontSize: 15, fontWeight: '700' },
-  caption: { color: '#fff', fontSize: 14, lineHeight: 18 },
-  musicRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
-  musicText: { color: '#fff', fontSize: 12, flex: 1 },
+  username: { color: '#fff', fontSize: 15, fontWeight: '700', textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 4 },
+  followBtn: { borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)', borderRadius: 6, paddingHorizontal: 12, paddingVertical: 4, backgroundColor: 'rgba(0,0,0,0.2)' },
+  followText: { color: '#fff', fontSize: 13, fontWeight: '600' },
+  caption: { color: '#fff', fontSize: 14, lineHeight: 20, textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 4 },
+  
+  endScreenOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.85)', alignItems: 'center', justifyContent: 'center', zIndex: 20 },
+  endText: { color: '#fff', fontSize: 18, fontWeight: '800', marginTop: 16 },
+
+  // Comment Drawer Styles
+  modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' },
+  modalBackdrop: { ...StyleSheet.absoluteFillObject },
+  commentSheet: { backgroundColor: '#1a1a1a', borderTopLeftRadius: 20, borderTopRightRadius: 20, height: SCREEN_H * 0.6 },
+  commentHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#333' },
+  commentTitle: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  commentList: { flex: 1, padding: 16 },
+  commentRow: { flexDirection: 'row', marginBottom: 16, gap: 12 },
+  commentAvatar: { width: 32, height: 32, borderRadius: 16 },
+  commentUser: { color: '#aaa', fontSize: 12, marginBottom: 2 },
+  commentText: { color: '#fff', fontSize: 14 },
+  commentInputRow: { flexDirection: 'row', alignItems: 'center', padding: 16, borderTopWidth: 1, borderTopColor: '#333', gap: 12, paddingBottom: Platform.OS === 'ios' ? 30 : 16 },
+  commentInput: { flex: 1, backgroundColor: '#333', borderRadius: 20, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10, color: '#fff', maxHeight: 100 },
+  postBtn: { color: '#ef4444', fontWeight: '700', fontSize: 15 }
 });

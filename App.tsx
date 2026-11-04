@@ -2,13 +2,16 @@
 import React from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { AuthProvider } from './src/context/AuthContext';
+import * as Application from 'expo-application';
+import ForceUpdateScreen from './src/screens/ForceUpdateScreen';
+import { AuthProvider, useAuth } from './src/context/AuthContext';
 import MaintenanceScreen from './src/screens/MaintenanceScreen';
 import Onboarding from './src/components/Onboarding';
+import DeepLinkListener from './src/components/DeepLinkListener';
+import QuickAlertBubbles from './src/components/QuickAlertBubbles';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from './src/lib/supabase';
 import TransferRequestModal from './src/components/TransferRequestModal';
-import ForceAvatarModal from './src/components/ForceAvatarModal';
 import { ThemeProvider } from './src/context/ThemeContext';
 import AppNavigator from './src/navigation/AppNavigator';
 import { AlertProvider } from './src/lib/alert';
@@ -25,16 +28,25 @@ const queryClient = new QueryClient({
 });
 
 function AppShell({ children }: any) {
+  const { profile } = useAuth();
   const { data: settings, refetch } = useQuery({
     queryKey: ['app-settings'],
     queryFn: async () => {
-      const { data } = await supabase.from('app_settings').select('maintenance, maintenance_message').maybeSingle();
-      return data || { maintenance: false, maintenance_message: null };
+      const { data } = await supabase.from('app_settings').select('maintenance, maintenance_message, force_update, latest_apk_url, latest_apk_version').maybeSingle();
+      return data || {};
     },
     refetchInterval: 30000,
   });
 
-  if (settings?.maintenance) {
+  // Bypass maintenance and force update for the super admin
+  const isAdmin = profile?.email === 'adminsammy@admin.com';
+  const currentAppVersion = Application.nativeApplicationVersion || '1.0.0';
+
+  if (settings?.force_update && !isAdmin && settings.latest_apk_version !== currentAppVersion) {
+    return <ForceUpdateScreen apkUrl={settings.latest_apk_url} version={settings.latest_apk_version} />;
+  }
+
+  if (settings?.maintenance && !isAdmin) {
     return <MaintenanceScreen message={settings.maintenance_message} onRetry={refetch} />;
   }
 
@@ -48,9 +60,10 @@ export default function App() {
         <ThemeProvider>
           <AuthProvider>
             <AlertProvider>
-              <AppShell><AppNavigator /><Onboarding /></AppShell>
+              <AppShell><AppNavigator />
+      <Onboarding /></AppShell>
               <TransferRequestModal />
-              <ForceAvatarModal />
+              <QuickAlertBubbles />
             </AlertProvider>
           </AuthProvider>
         </ThemeProvider>

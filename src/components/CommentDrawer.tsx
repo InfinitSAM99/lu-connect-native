@@ -15,14 +15,8 @@ export default function CommentDrawer({ post, onClose }: { post: any; onClose: (
   const [likes, setLikes] = useState(post?.like_count || 0);
   const [liked, setLiked] = useState(!!post?.liked);
   const [sending, setSending] = useState(false);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const scrollRef = useRef<ScrollView>(null);
+    const scrollRef = useRef<ScrollView>(null);
 
-  useEffect(() => {
-    const showSub = Keyboard.addListener('keyboardDidShow', (e) => setKeyboardHeight(e.endCoordinates.height));
-    const hideSub = Keyboard.addListener('keyboardDidHide', () => setKeyboardHeight(0));
-    return () => { showSub.remove(); hideSub.remove(); };
-  }, []);
 
   const load = async () => {
     const { data: rows, error } = await supabase
@@ -149,9 +143,13 @@ export default function CommentDrawer({ post, onClose }: { post: any; onClose: (
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView 
+        style={{ flex: 1 }} 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      >
         <View style={styles.overlay}>
-          <View style={[styles.sheet, { paddingBottom: Math.max(keyboardHeight, insets.bottom, 10) }]}>
+          <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 10) }]}>
             
             {/* PREMIUM HANDLE + CLOSE */}
             <View style={styles.handleRow}>

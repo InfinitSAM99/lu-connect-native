@@ -1,19 +1,19 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Image, ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Modal, Keyboard } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Image, ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Modal, FlatList } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useAudioRecorder, AudioModule, RecordingPresets } from 'expo-audio';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import { playMessageIn, playMessageOut } from '../lib/sounds';
 import { getChatTheme } from '../lib/chatThemes';
-import { SwipeableMessage, GroupMembersList, isEmojiOnly } from '../components/ChatHelpers';
+import { GroupMembersList } from '../components/ChatHelpers';
+import MessageBubble from '../components/MessageBubble';
 import ChatThemePicker from '../components/ChatThemePicker';
 import BottomSheet from '../components/BottomSheet';
 import FastButton from '../components/FastButton';
-import { formatDuration } from '../lib/voiceRecorder';
 
 const MSG_COLS = 'id, conversation_id, sender_id, content, attachment_url, attachment_type, attachment_name, is_deleted, read_at, created_at, parent_id';
 
@@ -76,6 +76,8 @@ async function loadConversation(conversationId: string, myId: string) {
   return { messages: enriched, other: otherProfile, otherOnline, myTheme: myMembership?.theme || 'classic', group, myRole };
 }
 
+
+
 export default function ConversationScreen({ route, navigation }: any) {
   const { id, draft } = route.params;
   const { profile } = useAuth();
@@ -88,20 +90,54 @@ export default function ConversationScreen({ route, navigation }: any) {
   const [uploading, setUploading] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
   const [replyingTo, setReplyingTo] = useState<any>(null);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
-
   const [themePickerOpen, setThemePickerOpen] = useState(false);
   const [activeTheme, setActiveTheme] = useState('classic');
   const [menuOpen, setMenuOpen] = useState(false);
 
   const scrollRef = useRef<ScrollView>(null);
+  const [isOtherTyping, setIsOtherTyping] = useState(false);
+  const typingChannelRef = useRef<any>(null);
+  const typingTimeoutRef = useRef<any>(null);
+  
+  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const [recording, setRecording] = useState(false);
+  const recordingTimer = useRef<any>(null);
+  const [recordingMs, setRecordingMs] = useState(0);
+
   const queryKey = useMemo(() => ['conversation', id, myId], [id, myId]);
 
+  // PRESENCE HEARTBEAT
   useEffect(() => {
-    const s = Keyboard.addListener('keyboardDidShow', (e) => setKeyboardHeight(e.endCoordinates.height));
-    const h = Keyboard.addListener('keyboardDidHide', () => setKeyboardHeight(0));
-    return () => { s.remove(); h.remove(); };
-  }, []);
+    if (!myId) return;
+    const updatePresence = () => {
+      supabase.from('profiles').update({ last_seen: new Date().toISOString() }).eq('id', myId).then();
+    };
+    updatePresence();
+    const interval = setInterval(updatePresence, 15000);
+    return () => clearInterval(interval);
+  }, [myId]);
+
+  // TYPING CHANNEL SETUP
+  useEffect(() => {
+    if (!myId) return;
+    const channel = supabase.channel(`typing-${id}`, {
+      config: { broadcast: { self: false } }
+    });
+
+    channel
+      .on('broadcast', { event: 'typing' }, (payload) => {
+        if (payload.payload.user_id !== myId) {
+          setIsOtherTyping(payload.payload.is_typing);
+          if (payload.payload.is_typing) {
+            setTimeout(() => setIsOtherTyping(false), 3000);
+          }
+        }
+      })
+      .subscribe();
+
+    typingChannelRef.current = channel;
+    return () => { supabase.removeChannel(channel); };
+  }, [id, myId]);
 
   const convQuery = useQuery({
     queryKey,
@@ -113,9 +149,7 @@ export default function ConversationScreen({ route, navigation }: any) {
     queryFn: () => loadConversation(id, myId!),
   });
   const rawMessages = convQuery.data?.messages || [];
-  const messages = [...rawMessages].sort((a: any, b: any) =>
-    new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-  );
+  const messages = [...rawMessages].sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
   const other = convQuery.data?.other || null;
   const otherOnline = convQuery.data?.otherOnline || false;
   const group = convQuery.data?.group || null;
@@ -125,27 +159,19 @@ export default function ConversationScreen({ route, navigation }: any) {
   const loading = convQuery.isLoading;
 
   useEffect(() => { if (convQuery.error) setErrMsg((convQuery.error as any).message); }, [convQuery.error]);
+  useEffect(() => { if (convQuery.data?.myTheme) setActiveTheme(convQuery.data.myTheme); }, [convQuery.data?.myTheme]);
 
-  useEffect(() => {
-    if (convQuery.data?.myTheme) setActiveTheme(convQuery.data.myTheme);
-  }, [convQuery.data?.myTheme]);
-
-  // Instantly mark as read when opening the chat
   useEffect(() => {
     if (!id || !myId) return;
     const now = new Date().toISOString();
-    // Update messages
     supabase.from('messages').update({ read_at: now }).eq('conversation_id', id).neq('sender_id', myId).is('read_at', null).then();
-    // Update membership
     supabase.from('conversation_members').update({ last_read_at: now }).eq('conversation_id', id).eq('user_id', myId).then();
-    
-    // Tell the list to refresh immediately
     queryClient.invalidateQueries({ queryKey: ['convs', myId] });
   }, [id, myId, queryClient]);
 
   useEffect(() => {
     if (!id || !myId) return;
-    const ch = supabase.channel(`conv-${id}-${Date.now()}`).on(
+    const ch = supabase.channel(`conv-${id}`).on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'messages', filter: `conversation_id=eq.${id}` },
       async (payload: any) => {
@@ -159,12 +185,13 @@ export default function ConversationScreen({ route, navigation }: any) {
           const { data: s } = await supabase.from('profiles').select('id, full_name, avatar_url, is_verified').eq('id', newRow.sender_id).maybeSingle();
           const sender = s || null;
 
+          setIsOtherTyping(false); // Hide typing bubble instantly when message arrives
+
           queryClient.setQueryData(queryKey, (old: any) => {
             if (!old) return old;
             return { ...old, messages: [...old.messages, { ...newRow, sender }] };
           });
-          try { playMessageIn(); } catch {}
-          queryClient.invalidateQueries({ queryKey: ['convs', myId] });
+                    queryClient.invalidateQueries({ queryKey: ['convs', myId] });
         }
         else if (payload.eventType === 'UPDATE') {
           queryClient.setQueryData(queryKey, (old: any) => {
@@ -182,20 +209,20 @@ export default function ConversationScreen({ route, navigation }: any) {
     );
     const timer = setTimeout(() => ch.subscribe(), 100);
 
-    const profileCh = supabase.channel(`profile-${other?.id}-${Date.now()}`)
+    const profileCh = supabase.channel(`profile-${other?.id}`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${other?.id}` }, (payload) => {
         queryClient.setQueryData(queryKey, (old: any) => {
           if (!old) return old;
           return { ...old, other: { ...old.other, ...payload.new } };
         });
       });
-    
+
     const profileTimer = setTimeout(() => profileCh.subscribe(), 100);
 
-    return () => { 
-      clearTimeout(timer); 
+    return () => {
+      clearTimeout(timer);
       clearTimeout(profileTimer);
-      supabase.removeChannel(ch); 
+      supabase.removeChannel(ch);
       supabase.removeChannel(profileCh);
     };
   }, [id, myId, queryClient, queryKey, other?.id]);
@@ -205,23 +232,16 @@ export default function ConversationScreen({ route, navigation }: any) {
     if (lastMsgId) {
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 100);
     }
-  }, [lastMsgId]);
+  }, [lastMsgId, isOtherTyping]);
 
   const insertMessage = async (payload: any) => {
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
     queryClient.setQueryData(queryKey, (old: any) => {
       if (!old) return old;
-      return {
-        ...old,
-        messages: [...old.messages, { ...payload, id: tempId, sender: profile, _optimistic: true, created_at: new Date().toISOString() }]
-      };
+      return { ...old, messages: [...old.messages, { ...payload, id: tempId, sender: profile, _optimistic: true, created_at: new Date().toISOString() }] };
     });
 
-    const { data: inserted, error } = await supabase
-      .from('messages')
-      .insert({ conversation_id: id, sender_id: myId, ...payload })
-      .select(MSG_COLS).single();
+    const { data: inserted, error } = await supabase.from('messages').insert({ conversation_id: id, sender_id: myId, ...payload }).select(MSG_COLS).single();
 
     if (error) {
       queryClient.setQueryData(queryKey, (old: any) => {
@@ -233,39 +253,66 @@ export default function ConversationScreen({ route, navigation }: any) {
 
     queryClient.setQueryData(queryKey, (old: any) => {
       if (!old) return old;
-      return {
-        ...old,
-        messages: old.messages.map((m: any) => {
-          if (m.id === tempId) {
-            return { ...inserted, sender: profile, _optimistic: false };
-          }
-          if (m.id === inserted.id) {
-            return null;
-          }
-          return m;
-        }).filter(Boolean)
-      };
+      return { ...old, messages: old.messages.map((m: any) => m.id === tempId ? { ...inserted, sender: profile, _optimistic: false } : m) };
     });
   };
 
-  const [recording, setRecording] = useState(false);
-  const [recordingMs, setRecordingMs] = useState(0);
-  const [cancelArmed, setCancelArmed] = useState(false);
-
-  const startRecording = async () => {
-    setErrMsg('Voice notes are temporarily disabled.');
+  const handleTyping = (val: string) => {
+    setText(val);
+    if (!typingChannelRef.current) return;
+    if (val.trim().length > 0) {
+      typingChannelRef.current.send({ type: 'broadcast', event: 'typing', payload: { user_id: myId, is_typing: true } });
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = setTimeout(() => {
+        typingChannelRef.current.send({ type: 'broadcast', event: 'typing', payload: { user_id: myId, is_typing: false } });
+      }, 2000);
+    }
   };
-  const finishRecording = async () => {};
-  const cancelRecording = async () => {};
 
   const sendText = async () => {
     const content = text.trim();
     if (!content) return;
     const parentId = replyingTo?.id || null;
     setText(''); setReplyingTo(null);
-    try { playMessageOut(); } catch {}
-    try { await insertMessage({ content, parent_id: parentId }); }
+    if (typingChannelRef.current) {
+      typingChannelRef.current.send({ type: 'broadcast', event: 'typing', payload: { user_id: myId, is_typing: false } });
+    }
+        try { await insertMessage({ content, parent_id: parentId }); }
     catch (e: any) { setErrMsg(e.message); }
+  };
+
+  const toggleRecording = async () => {
+    if (recording) {
+      setRecording(false);
+      clearInterval(recordingTimer.current);
+      try {
+        await audioRecorder.stop();
+        const uri = audioRecorder.uri;
+        if (!uri) return;
+        setUploading(true);
+        const blob = await (await fetch(uri)).blob();
+        const path = `${myId}/${id}-${Date.now()}.m4a`;
+        await supabase.storage.from('messages').upload(path, blob, { contentType: 'audio/m4a' });
+        const { data: { publicUrl } } = supabase.storage.from('messages').getPublicUrl(path);
+        await insertMessage({ content: '', attachment_url: publicUrl, attachment_type: 'audio' });
+      } catch (e: any) { setErrMsg(e.message); } finally { setUploading(false); }
+    } else {
+      try {
+        const permission = await AudioModule.requestRecordingPermissionsAsync();
+        if (!permission.granted) { setErrMsg('Microphone permission required.'); return; }
+        await audioRecorder.prepareToRecordAsync();
+        audioRecorder.record();
+        setRecording(true);
+        setRecordingMs(0);
+        recordingTimer.current = setInterval(() => setRecordingMs(prev => prev + 1000), 1000);
+      } catch (e: any) { setErrMsg(e.message); }
+    }
+  };
+
+  const cancelRecording = async () => {
+    setRecording(false);
+    clearInterval(recordingTimer.current);
+    try { await audioRecorder.stop(); } catch {}
   };
 
   const pickImage = async () => {
@@ -300,8 +347,8 @@ export default function ConversationScreen({ route, navigation }: any) {
   if (loading && !messages.length) return <View style={{ flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator color="#ef4444" /></View>;
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: '#000' }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <View style={{ flex: 1, paddingBottom: Platform.OS === 'android' ? keyboardHeight : 0 }}>
+    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: '#000' }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <View style={{ flex: 1 }}>
         {theme.isGradient ? (
           <LinearGradient colors={theme.colors as any} style={StyleSheet.absoluteFillObject} />
         ) : (
@@ -344,49 +391,72 @@ export default function ConversationScreen({ route, navigation }: any) {
 
         {errMsg ? <View style={{ backgroundColor: '#7f1d1d', margin: 10, padding: 10, borderRadius: 8 }}><Text style={{ color: '#fff', fontSize: 13 }}>{errMsg}</Text></View> : null}
 
-        <ScrollView ref={scrollRef} style={{ flex: 1 }} contentContainerStyle={{ padding: 14 }} onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })} keyboardShouldPersistTaps="handled">
-          {messages.map((m: any) => (
-            <SwipeableMessage
-              key={m.id}
-              message={m}
-              profile={profile}
-              deleted={m.is_deleted}
-              isImage={!m.is_deleted && m.attachment_type === 'image'}
-              isAudio={!m.is_deleted && m.attachment_type === 'audio'}
-              isSticker={!m.is_deleted && !m.attachment_url && isEmojiOnly(m.content)}
-              onDelete={deleteMessage}
-              onReply={(msg: any) => setReplyingTo(msg)}
-              onScrollTo={() => scrollRef.current?.scrollToEnd({ animated: true })}
-              showSenderName={isGroup && m.sender_id !== profile!.id}
-              themeObj={theme}
-            />
-          ))}
-        </ScrollView>
+        <FlatList
+          ref={scrollRef}
+          data={messages}
+          keyExtractor={(item: any) => item.id}
+          contentContainerStyle={{ padding: 14 }}
+          keyboardShouldPersistTaps="handled"
+          onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
+          onLayout={() => scrollRef.current?.scrollToEnd({ animated: false })}
+          renderItem={({ item }) => (
+            <MessageBubble message={item} profile={profile} navigation={navigation} onDelete={deleteMessage} onReply={(msg: any) => setReplyingTo(msg)} otherOnline={otherOnline} />
+          )}
+          ListFooterComponent={() => (
+            isOtherTyping ? (
+              <View style={{ flexDirection: 'row', alignItems: 'flex-end', marginBottom: 16, paddingHorizontal: 12 }}>
+                {other && (
+                  <Image source={{ uri: other.avatar_url || `https://api.dicebear.com/7.x/initials/svg?seed=${other.full_name}` }} style={{ width: 28, height: 28, borderRadius: 14, marginRight: 8, marginBottom: 4, backgroundColor: '#222' }} />
+                )}
+                <View style={{ backgroundColor: '#262626', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 22, borderBottomLeftRadius: 4, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <View style={styles.dot} />
+                  <View style={styles.dot} />
+                  <View style={styles.dot} />
+                </View>
+              </View>
+            ) : null
+          )}
+        />
+
+        
+
+        {recording && (
+          <View style={styles.recordingBar}>
+            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#ef4444', marginRight: 10 }} />
+            <Text style={{ color: '#ef4444', fontWeight: '700', flex: 1 }}>
+              Recording... {Math.floor(recordingMs / 1000)}s (Tap mic to send)
+            </Text>
+            <TouchableOpacity onPress={cancelRecording}>
+              <Text style={{ color: '#6d7382', fontWeight: '600' }}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {replyingTo && (
           <View style={styles.replyBar}>
-            <Ionicons name="return-down-forward" size={16} color="#ef4444" />
-            <View style={{ flex: 1, marginLeft: 10 }}>
-              <Text style={{ fontWeight: '600', color: '#ef4444', fontSize: 12 }}>Replying to {replyingTo.sender_id === profile!.id ? 'yourself' : (replyingTo.sender?.full_name || 'message')}</Text>
-              <Text style={{ fontSize: 12, color: '#6d7382' }} numberOfLines={1}>{replyingTo.content || '(media)'}</Text>
+            <View style={{ width: 3, height: 30, backgroundColor: '#ef4444', borderRadius: 2, marginRight: 10 }} />
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: '#ef4444', fontSize: 12, fontWeight: '700' }}>{replyingTo.sender?.full_name || 'User'}</Text>
+              <Text style={{ color: '#6d7382', fontSize: 13 }} numberOfLines={1}>{replyingTo.content || 'Media'}</Text>
             </View>
-            <TouchableOpacity onPress={() => setReplyingTo(null)} style={{ padding: 4 }}><Ionicons name="close" size={16} color="#fff" /></TouchableOpacity>
+            <TouchableOpacity onPress={() => setReplyingTo(null)} style={{ padding: 6 }}>
+              <Ionicons name="close-circle" size={22} color="#6d7382" />
+            </TouchableOpacity>
           </View>
         )}
 
         <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, 10) }]}>
-          <View style={styles.composerBar}>
-            <TextInput style={styles.input} placeholder="Message" placeholderTextColor="#6d7382" value={text} onChangeText={setText} multiline />
-            <FastButton onPress={pickImage} style={{ padding: 6 }} disabled={uploading}>
-              <Ionicons name="attach" size={22} color="#fff" />
-            </FastButton>
-            <TouchableOpacity onPress={startRecording} style={{ padding: 6 }} disabled={uploading}>
-              <Ionicons name="mic" size={22} color={recording ? '#ef4444' : '#fff'} />
-            </TouchableOpacity>
+          <TouchableOpacity onPress={pickImage} disabled={uploading} style={styles.attachBtn}>
+            <Ionicons name="add" size={26} color="#ef4444" />
+          </TouchableOpacity>
+
+          <View style={styles.inputWrap}>
+            <TextInput style={styles.input} placeholder="Message" placeholderTextColor="#6d7382" value={text} onChangeText={handleTyping} multiline />
           </View>
-          <FastButton style={styles.sendBtn} onPress={sendText} disabled={uploading}>
-            <Ionicons name="send" size={20} color="#fff" />
-          </FastButton>
+
+          <TouchableOpacity style={[styles.sendBtn, recording && { backgroundColor: '#ef4444' }]} onPress={text.trim().length > 0 ? sendText : toggleRecording}>
+            <Ionicons name={text.trim().length > 0 ? "send" : "mic"} size={20} color="#fff" />
+          </TouchableOpacity>
         </View>
 
         <BottomSheet open={menuOpen} onClose={() => setMenuOpen(false)} maxHeight="60vh">
@@ -450,11 +520,14 @@ export default function ConversationScreen({ route, navigation }: any) {
 
 const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.1)' },
-  replyBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#141414', borderTopWidth: 1, borderTopColor: '#1f1f1f' },
-  composer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 10, paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)', backgroundColor: 'rgba(0,0,0,0.8)' },
-  composerBar: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#141414', borderRadius: 24, paddingHorizontal: 6, paddingVertical: 4 },
-  input: { flex: 1, color: '#fff', fontSize: 15, paddingHorizontal: 8, maxHeight: 100, paddingVertical: 8 },
-  sendBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#ef4444', alignItems: 'center', justifyContent: 'center' },
+  recordingBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, backgroundColor: '#1a0d0f', borderTopWidth: 1, borderTopColor: '#3b1215' },
+  replyBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10, backgroundColor: '#1a0d0f', borderTopWidth: 1, borderTopColor: 'rgba(239,68,68,0.2)', borderLeftWidth: 3, borderLeftColor: '#ef4444' },
+  composer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.05)', backgroundColor: '#000' },
+  attachBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: '#141414', marginBottom: 2 },
+  inputWrap: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#141414', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 4, borderWidth: 1, borderColor: '#1f1f1f', minHeight: 44 },
+  input: { flex: 1, color: '#fff', fontSize: 15, maxHeight: 100, paddingVertical: 8 },
+  sendBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#ef4444', alignItems: 'center', justifyContent: 'center', marginBottom: 2, shadowColor: '#ef4444', shadowOpacity: 0.4, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } },
+  dot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: '#6d7382' },
   menuRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#1f1f1f', gap: 16 },
   menuText: { fontSize: 16, color: '#fff', fontWeight: '500' },
 });

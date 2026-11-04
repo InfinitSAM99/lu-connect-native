@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Modal, Alert, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { useVideoPlayer, VideoView } from 'expo-video';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 
@@ -13,18 +12,7 @@ export default function UploadReelModal({ open, onClose, onUploaded }: any) {
   const [uploading, setUploading] = useState(false);
   const [duration, setDuration] = useState(0);
 
-  const player = useVideoPlayer(videoUri, (p) => {
-    p.loop = true;
-  });
 
-  React.useEffect(() => {
-    if (open && videoUri) {
-      player.replace(videoUri);
-      player.play();
-    } else {
-      player.pause();
-    }
-  }, [open, videoUri, player]);
 
   const pickVideo = async () => {
     const res = await ImagePicker.launchImageLibraryAsync({
@@ -96,7 +84,11 @@ export default function UploadReelModal({ open, onClose, onUploaded }: any) {
         <TouchableOpacity onPress={pickVideo} style={{ height: 320, borderRadius: 16, backgroundColor: '#141414', alignItems: 'center', justifyContent: 'center', marginBottom: 16, overflow: 'hidden' }}>
           {videoUri ? (
             <>
-              <VideoView player={player} style={{ width: '100%', height: '100%' }} contentFit="contain" nativeControls={false} />
+              <View style={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', backgroundColor: '#000' }}>
+                <Ionicons name="checkmark-circle" size={48} color="#22c55e" />
+                <Text style={{ color: '#fff', marginTop: 8, fontSize: 13, fontWeight: '600' }}>Video selected</Text>
+                <Text style={{ color: '#6d7382', marginTop: 4, fontSize: 11 }}>Playback will be available in the Reels feed</Text>
+              </View>
               <TouchableOpacity onPress={() => setVideoUri(null)} style={{ position: 'absolute', top: 10, right: 10, backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 20, padding: 8 }}>
                 <Ionicons name="close" size={20} color="#fff" />
               </TouchableOpacity>

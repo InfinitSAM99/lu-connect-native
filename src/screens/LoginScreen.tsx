@@ -131,6 +131,13 @@ export default function LoginScreen({ navigation }: any) {
   const handleRegister = async () => {
     setRegErr(''); setRegMsg('');
     if (!reg.university) return setRegErr('Please select your university');
+    
+    // Strict Password Validation
+    const strongRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#^()_\-+=])[A-Za-z\d@$!%*?&#^()_\-+=]{8,}$/;
+    if (!strongRegex.test(reg.password)) {
+      return setRegErr('Password must be at least 8 characters long and include an uppercase letter, a lowercase letter, a number, and a special symbol (e.g., @, #, $, !).');
+    }
+
     setRegLoading(true);
     try {
       const { error } = await signUp(reg.email, reg.password, reg.fullName, reg.username, reg.admissionNumber, reg.university, reg.university_id);
@@ -180,20 +187,10 @@ export default function LoginScreen({ navigation }: any) {
 
           <Text style={[styles.label, { marginTop: 14 }]}>Password</Text>
           <Field icon={<LockIcon />} secureTextEntry value={signInPass} onChangeText={setSignInPass} placeholder="Your password" />
-          <TouchableOpacity onPress={handleForgotPassword} style={{ alignSelf: 'flex-end', marginTop: 10 }}>
-            <Text style={{ color: '#ef4444', fontSize: 13, fontWeight: '600' }}>Forgot password?</Text>
-          </TouchableOpacity>
-
           <FastButton style={[styles.primaryBtn, { marginTop: 24 }]} onPress={handleSignIn} disabled={signInLoading}>
             <Text style={styles.primaryBtnText}>{signInLoading ? 'Signing in…' : 'Sign in'}</Text>
           </FastButton>
 
-          <View style={{ flexDirection: 'row', justifyContent: 'center', marginTop: 18 }}>
-            <Text style={{ fontSize: 13, color: '#6d7382' }}>New here? </Text>
-            <TouchableOpacity onPress={() => setSheet('register')}>
-              <Text style={{ fontSize: 13, color: '#ef4444', fontWeight: '600' }}>Create account</Text>
-            </TouchableOpacity>
-          </View>
         </ScrollView>
       </BottomSheet>
 
@@ -229,7 +226,7 @@ export default function LoginScreen({ navigation }: any) {
           <TextInput style={styles.input} keyboardType="email-address" value={reg.email} onChangeText={(v) => setReg({ ...reg, email: v })} placeholder="you@university.edu" placeholderTextColor="#6d7382" autoCapitalize="none" />
 
           <Text style={[styles.label, { marginTop: 12 }]}>Password</Text>
-          <TextInput style={styles.input} secureTextEntry value={reg.password} onChangeText={(v) => setReg({ ...reg, password: v })} placeholder="Min 6 characters" placeholderTextColor="#6d7382" />
+          <TextInput style={styles.input} secureTextEntry value={reg.password} onChangeText={(v) => setReg({ ...reg, password: v })} placeholder="8+ chars, Uppercase, Number, Symbol" placeholderTextColor="#6d7382" />
 
           <FastButton style={[styles.primaryBtn, { marginTop: 24 }]} onPress={handleRegister} disabled={regLoading}>
             <Text style={styles.primaryBtnText}>{regLoading ? 'Creating account…' : 'Create account'}</Text>
@@ -252,7 +249,10 @@ export default function LoginScreen({ navigation }: any) {
         onClose={() => setAuthError({ ...authError, visible: false })}
         onReset={() => {
           setAuthError({ ...authError, visible: false });
-          setTimeout(() => handleForgotPassword(), 300);
+          setTimeout(() => {
+            closeSheet();
+            navigation.navigate('ForgotPassword');
+          }, 300);
         }}
       />
 

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Dimensions } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   useSharedValue,
@@ -35,12 +36,16 @@ export default function QuickAlertBubbles() {
 
     const msgChannel = supabase.channel(`quick-msg-${profile.id}-${Date.now()}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload: any) => {
-        if (payload.new.sender_id !== profile.id) { runOnJS(setPreviewText)(payload.new.content || 'New message'); trigger('message'); }
+        if (payload.new.sender_id !== profile.id) { 
+          runOnJS(setPreviewText)(payload.new.content || 'New message'); 
+          trigger('message'); 
+        }
       });
 
     const notifChannel = supabase.channel(`quick-notif-${profile.id}-${Date.now()}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${profile.id}` }, () => {
-        { runOnJS(setPreviewText)('New activity'); trigger('notification'); }
+        runOnJS(setPreviewText)('New activity');
+        trigger('notification');
       });
 
     const t1 = setTimeout(() => msgChannel.subscribe(), 100);
@@ -54,8 +59,11 @@ export default function QuickAlertBubbles() {
     };
   }, [profile?.id]);
 
-  const trigger = (type: 'message' | 'notification') => {
-    if (profile?.alerts_enabled === false) return;
+  const trigger = async (type: 'message' | 'notification') => {
+    // Check AsyncStorage preference
+    const enabled = await AsyncStorage.getItem('pref_quick_alerts');
+    if (enabled === 'false') return; 
+    
     runOnJS(setSignalType)(type);
 
     opacity.value = 0;

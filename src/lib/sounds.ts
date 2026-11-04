@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
 
 const FILES: Record<string, any> = {
@@ -47,7 +48,10 @@ async function play(key: string, volume = 1, maxDurationMs?: number) {
 // Like: trim the original like.mp3 to 200ms
 export async function playLike() { await play('like', 0.9, 200); }
 
-export async function playMessageIn() { await play('messageIn', 0.9, 400); }
+export async function playMessageIn() {
+  const enabled = await AsyncStorage.getItem('pref_sounds');
+  if (enabled === 'false') return;
+ await play('messageIn', 0.9, 400); }
 export async function playMessageOut() { await play('messageOut', 0.7, 300); }
 export async function playNotification() { await play('notification', 0.85, 500); }
 export async function playComment() {}

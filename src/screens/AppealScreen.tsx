@@ -42,6 +42,8 @@ export default function AppealScreen({ navigation }: any) {
     setAppeal(data || null);
     if (data?.appeal_text) setAppealText(data.appeal_text);
     setLoading(false);
+    // Reload profile to check if admin approved/updated status
+    await reloadProfile?.();
   };
 
   useEffect(() => { loadAppeal(); }, [user?.id]);
@@ -53,10 +55,14 @@ export default function AppealScreen({ navigation }: any) {
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'ban_appeals', filter: `user_id=eq.${user.id}` }, () => {
         loadAppeal();
       })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` }, () => {
-        loadAppeal();
-        // Also refresh the global profile so the navigator re-checks approval_status
-        reloadProfile?.();
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` }, async (payload: any) => {
+        console.log('PROFILE UPDATED:', payload.new?.approval_status);
+        
+        // Only reload the profile AFTER the user accepts terms
+        // (don't trigger it here, or it will skip the consent step)
+        if (payload.new?.approval_status === 'approved' && appeal?.consent_accepted_at) {
+          await reloadProfile?.();
+        }
       });
     const timer = setTimeout(() => ch.subscribe(), 100);
     return () => { clearTimeout(timer); supabase.removeChannel(ch); };
@@ -76,11 +82,14 @@ export default function AppealScreen({ navigation }: any) {
     })();
   }, []);
   useEffect(() => {
-    if (!appeal) return;
-    if (appeal.stage === 'identity_rejected' && !sheet) setSheet('identity');
-    if (appeal.stage === 'appeal_open' && !sheet) setSheet('writeAppeal');
-    if (appeal.stage === 'unbanned' && !sheet) setSheet('consent');
-  }, [appeal?.stage]);
+    if (!appeal || loading) return;
+    // Only auto-open if no sheet is already open
+    if (sheet) return;
+    
+    if (appeal.stage === 'identity_rejected') setSheet('identity');
+    else if (appeal.stage === 'appeal_open') setSheet('writeAppeal');
+    else if (appeal.stage === 'unbanned') setSheet('consent');
+  }, [appeal?.stage, loading]);
 
   const pickSelfie = async () => {
     if (selfies.length >= 2) return;
@@ -180,21 +189,28 @@ export default function AppealScreen({ navigation }: any) {
   const acceptConsent = async () => {
     if (!consentChecked) return;
     setAcceptingConsent(true); setErr('');
-    const { error: apErr } = await supabase.from('ban_appeals').update({ consent_accepted_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', appeal.id);
-    if (apErr) { setAcceptingConsent(false); return setErr(apErr.message); }
 
-    const { error: profErr } = await supabase.from('profiles').update({ approval_status: 'approved' }).eq('id', user.id);
+    // Save consent on the appeal record
+    const { error: apErr } = await supabase
+      .from('ban_appeals')
+      .update({ 
+        consent_accepted_at: new Date().toISOString(), 
+        updated_at: new Date().toISOString() 
+      })
+      .eq('id', appeal.id);
+
     setAcceptingConsent(false);
-    if (profErr) return setErr(profErr.message);
-    
+    if (apErr) return setErr(apErr.message);
+
+    // Reload profile — admin already set approval_status = 'approved'
     await reloadProfile?.();
-    navigation.replace('Feed');
   };
 
   const doLogout = async () => {
     await signOut();
-    navigation.replace('Login');
+    // AppNavigator will show Login automatically when user becomes null
   };
+
 
   if (loading) return <View style={styles.center}><Text style={{ color: '#6d7382' }}>Loading…</Text></View>;
 

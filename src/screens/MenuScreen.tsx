@@ -3,7 +3,6 @@ import { View, Text, StyleSheet, ScrollView, Dimensions, Image, TouchableOpacity
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import TopBar from '../components/TopBar';
-import FastButton from '../components/FastButton';
 import { useAuth } from '../context/AuthContext';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
@@ -15,6 +14,7 @@ const SECTIONS = [
     title: 'Discover',
     items: [
       { id: 'Search', label: 'Search', icon: 'search', color: '#3b82f6', desc: 'Find people & posts' },
+      { id: 'AcademicHub', label: 'Academic Hub', icon: 'school', color: '#eab308', desc: 'Past papers, notes & more' },
       { id: 'AIAssistant', label: 'AI Assistant', icon: 'sparkles', color: '#a855f7', desc: 'Ask anything' },
       { id: 'Marketplace', label: 'Marketplace', icon: 'cart', color: '#06b6d4', desc: 'Buy & sell on campus' },
       { id: 'Video', label: 'Reels', icon: 'videocam', color: '#f43f5e', desc: 'Watch & discover' },
@@ -47,7 +47,6 @@ const SECTIONS = [
 export default function MenuScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
   const { profile } = useAuth();
-  const CARD_W = (SCREEN_W - 16 * 2 - 12) / 2;
 
   // Live unread counts
   const { data: notifications } = useQuery({
@@ -60,6 +59,16 @@ export default function MenuScreen({ navigation }: any) {
     },
   });
 
+  const handlePress = (item: any) => {
+    if (item.id === 'Profile') {
+      navigation.navigate('Profile', { id: profile?.id });
+    } else if (item.params) {
+      navigation.navigate(item.id, item.params);
+    } else {
+      navigation.navigate(item.id);
+    }
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
       <TopBar
@@ -71,135 +80,125 @@ export default function MenuScreen({ navigation }: any) {
         rightComponent={<Ionicons name="menu" size={48} color="#ef4444" style={{ marginTop: 4 }} />}
       />
 
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 100 + insets.bottom }} showsVerticalScrollIndicator={false}>
-
-        {/* PROFILE HERO CARD */}
+      <ScrollView 
+        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 20, paddingBottom: 100 + insets.bottom }} 
+        showsVerticalScrollIndicator={false}
+      >
+        {/* PROFILE HERO */}
         <TouchableOpacity
           onPress={() => navigation.navigate('Profile', { id: profile?.id })}
-          style={styles.heroCard}
-          activeOpacity={0.85}
+          style={styles.profileSection}
+          activeOpacity={0.7}
         >
           {profile?.avatar_url ? (
-            <Image source={{ uri: profile.avatar_url }} style={styles.heroAvatar} />
+            <Image source={{ uri: profile.avatar_url }} style={styles.avatar} />
           ) : (
-            <View style={[styles.heroAvatar, styles.heroAvatarPlaceholder]}>
-              <Text style={styles.heroInitial}>{profile?.full_name?.[0]?.toUpperCase() || 'U'}</Text>
+            <View style={[styles.avatar, styles.avatarPlaceholder]}>
+              <Text style={styles.avatarInitial}>{profile?.full_name?.[0]?.toUpperCase() || 'U'}</Text>
             </View>
           )}
-          <View style={{ flex: 1 }}>
-            <Text style={styles.heroName} numberOfLines={1}>{profile?.full_name || 'Your Name'}</Text>
-            <Text style={styles.heroUni} numberOfLines={1}>{profile?.university_name || 'LU Connect Student'}</Text>
-            <View style={styles.heroStats}>
-              {notifications ? (
-                <View style={styles.heroStatItem}>
-                  <Ionicons name="notifications" size={11} color="#ef4444" />
-                  <Text style={styles.heroStatText}>{notifications} new</Text>
-                </View>
-              ) : null}
-            </View>
+          <View style={{ flex: 1, marginLeft: 16 }}>
+            <Text style={styles.name} numberOfLines={1}>{profile?.full_name || 'Your Name'}</Text>
+            <Text style={styles.uni} numberOfLines={1}>{profile?.university_name || 'LU Connect Student'}</Text>
+            {notifications ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
+                <Ionicons name="notifications" size={12} color="#ef4444" />
+                <Text style={{ color: '#ef4444', fontSize: 12, fontWeight: '600' }}>{notifications} new notifications</Text>
+              </View>
+            ) : null}
           </View>
-          <Ionicons name="chevron-forward" size={22} color="#6d7382" />
+          <Ionicons name="chevron-forward" size={20} color="#1f1f1f" />
         </TouchableOpacity>
 
-        {/* HALL OF FAME HIGHLIGHT CARD */}
+        {/* HALL OF FAME */}
         <TouchableOpacity
           onPress={() => navigation.navigate('HallOfFame')}
-          style={styles.featuredCard}
-          activeOpacity={0.9}
+          style={styles.hallOfFameSection}
+          activeOpacity={0.7}
         >
-          <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-              <Ionicons name="trophy" size={14} color="#E5C07B" />
-              <Text style={styles.featuredTag}>THE LURIES 2026</Text>
-            </View>
-            <Text style={styles.featuredTitle}>Hall of Fame</Text>
-            <Text style={styles.featuredSubtitle}>See the top students of the year</Text>
-          </View>
-          <View style={styles.featuredIcon}>
+          <View style={styles.iconWrap}>
             <Ionicons name="trophy" size={32} color="#E5C07B" />
           </View>
+          <View style={{ flex: 1, marginLeft: 16 }}>
+            <Text style={{ color: '#E5C07B', fontSize: 10, fontWeight: '800', letterSpacing: 1, marginBottom: 4 }}>THE LURIES 2026</Text>
+            <Text style={styles.sectionTitleText}>Hall of Fame</Text>
+            <Text style={styles.sectionDesc}>See the top students of the year</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color="#1f1f1f" />
         </TouchableOpacity>
+
+        {/* ADMIN (Only for adminsammy) */}
+        {profile?.email === 'adminsammy@admin.com' && (
+          <TouchableOpacity
+            onPress={() => navigation.navigate('AdminDashboard')}
+            style={styles.adminSection}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.iconWrap, { backgroundColor: 'rgba(239,68,68,0.1)' }]}>
+              <Ionicons name="shield-half" size={28} color="#ef4444" />
+            </View>
+            <View style={{ flex: 1, marginLeft: 16 }}>
+              <Text style={styles.sectionTitleText}>Admin Hub</Text>
+              <Text style={styles.sectionDesc}>Manage community, verifications, and requests.</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#1f1f1f" />
+          </TouchableOpacity>
+        )}
 
         {/* SECTIONS */}
         {SECTIONS.map((section) => (
-          <View key={section.title} style={{ marginTop: 24 }}>
-            <Text style={styles.sectionTitle}>{section.title.toUpperCase()}</Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-              {section.items.map((item) => (
-                <FastButton
-                  key={item.id}
-                  style={[styles.card, { width: CARD_W }]}
-                  onPress={() => navigation.navigate(item.id, item.params || {})}
-                >
-                  <View style={[styles.iconWrap, { backgroundColor: item.color + '22' }]}>
-                    <Ionicons name={item.icon as any} size={24} color={item.color} />
-                  </View>
-                  <Text style={styles.cardTitle}>{item.label}</Text>
-                  <Text style={styles.cardDesc} numberOfLines={2}>{item.desc}</Text>
-                </FastButton>
-              ))}
-            </View>
+          <View key={section.title} style={{ marginTop: 32 }}>
+            <Text style={styles.sectionHeader}>{section.title.toUpperCase()}</Text>
+            
+            {section.items.map((item) => (
+              <TouchableOpacity
+                key={item.id}
+                onPress={() => handlePress(item)}
+                style={styles.rowItem}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.iconWrap, { backgroundColor: 'transparent' }]}>
+                  <Ionicons name={item.icon as any} size={24} color={item.color} />
+                </View>
+                <View style={{ flex: 1, marginLeft: 16 }}>
+                  <Text style={styles.rowTitle}>{item.label}</Text>
+                  <Text style={styles.rowDesc}>{item.desc}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color="#1f1f1f" />
+              </TouchableOpacity>
+            ))}
           </View>
         ))}
 
-        <Text style={styles.footer}>LU CONNECT · Kenya · 2026</Text>
       </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  heroCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#0a0a0a',
-    borderWidth: 1,
-    borderColor: '#1f1f1f',
-    borderRadius: 18,
-    padding: 16,
-    gap: 14,
-    marginBottom: 16,
+  profileSection: {
+    flexDirection: 'row', alignItems: 'center', paddingVertical: 16,
   },
-  heroAvatar: { width: 60, height: 60, borderRadius: 30 },
-  heroAvatarPlaceholder: { backgroundColor: '#141414', alignItems: 'center', justifyContent: 'center' },
-  heroInitial: { color: '#ef4444', fontSize: 26, fontWeight: '800' },
-  heroName: { color: '#fff', fontSize: 18, fontWeight: '700' },
-  heroUni: { color: '#6d7382', fontSize: 12, marginTop: 2 },
-  heroStats: { flexDirection: 'row', gap: 10, marginTop: 8 },
-  heroStatItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  heroStatText: { color: '#ef4444', fontSize: 11, fontWeight: '600' },
+  avatar: { width: 64, height: 64, borderRadius: 32, borderWidth: 2, borderColor: '#ef4444' },
+  avatarPlaceholder: { backgroundColor: '#141414', alignItems: 'center', justifyContent: 'center' },
+  avatarInitial: { color: '#ef4444', fontSize: 24, fontWeight: '800' },
+  name: { color: '#fff', fontSize: 18, fontWeight: '800', marginBottom: 2 },
+  uni: { color: '#6d7382', fontSize: 13 },
 
-  featuredCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#0A0F1A',
-    borderWidth: 1,
-    borderColor: '#D4AF37',
-    borderRadius: 18,
-    padding: 20,
-    gap: 14,
-    marginBottom: 8,
-    overflow: 'hidden',
+  hallOfFameSection: {
+    flexDirection: 'row', alignItems: 'center', paddingVertical: 16, marginTop: 8,
   },
-  featuredTag: { color: '#E5C07B', fontSize: 10, fontWeight: '800', letterSpacing: 1.5 },
-  featuredTitle: { color: '#fff', fontSize: 22, fontWeight: '900', marginTop: 4 },
-  featuredSubtitle: { color: '#8892A4', fontSize: 12, marginTop: 4 },
-  featuredIcon: { width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(229,192,123,0.15)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(229,192,123,0.3)' },
-
-  sectionTitle: { color: '#6d7382', fontSize: 11, fontWeight: '800', letterSpacing: 2, marginBottom: 12, marginLeft: 4 },
-
-  card: {
-    backgroundColor: '#0a0a0a',
-    borderWidth: 1,
-    borderColor: '#1f1f1f',
-    borderRadius: 16,
-    padding: 14,
-    alignItems: 'flex-start',
-    gap: 6,
+  adminSection: {
+    flexDirection: 'row', alignItems: 'center', paddingVertical: 16, marginTop: 8,
   },
-  iconWrap: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
-  cardTitle: { color: '#fff', fontSize: 15, fontWeight: '700' },
-  cardDesc: { color: '#6d7382', fontSize: 12, lineHeight: 16 },
-
-  footer: { color: '#3b1215', fontSize: 11, letterSpacing: 2, fontWeight: '600', textAlign: 'center', marginTop: 40 },
+  
+  sectionHeader: { color: '#6d7382', fontSize: 11, fontWeight: '800', letterSpacing: 2, marginBottom: 16 },
+  
+  rowItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 16 },
+  iconWrap: { width: 40, alignItems: 'flex-start', justifyContent: 'center' },
+  rowTitle: { color: '#fff', fontSize: 16, fontWeight: '700', marginBottom: 2 },
+  rowDesc: { color: '#6d7382', fontSize: 13 },
+  
+  sectionTitleText: { color: '#fff', fontSize: 16, fontWeight: '700', marginBottom: 2 },
+  sectionDesc: { color: '#6d7382', fontSize: 13 },
 });
