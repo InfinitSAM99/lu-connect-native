@@ -143,7 +143,7 @@ function ReelItem({ item, isActive, navigation, onVideoEnd, onOpenComments }: an
 
   return (
     <View style={{ height: SCREEN_H, width: '100%', backgroundColor: '#000' }}>
-      <VideoView player={player} style={{ width: '100%', height: '100%' }} contentFit="cover" nativeControls={false} />
+      <VideoView player={player} style={{ width: '100%', height: '100%' }} contentFit="contain" nativeControls={false} />
       
       {showEnd && (
         <View style={styles.endScreenOverlay}>

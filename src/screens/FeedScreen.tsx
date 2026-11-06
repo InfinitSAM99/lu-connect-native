@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
+import { redis } from '../lib/redis';
 import { useAuth } from '../context/AuthContext';
 import UniversityPickerScreen from './UniversityPickerScreen';
 import PostComposer from '../components/PostComposer';
@@ -54,6 +55,17 @@ async function enrichPosts(rows: any[], myId: string) {
 }
 
 async function fetchFeedData(myId: string, universityId: string | 'all' | 'mine', myUniversityId: string | undefined, residence?: string) {
+  const cacheKey = `feed:${myId}:${universityId}`;
+  try {
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      console.log('Serving feed from Redis cache');
+      return cached as any[];
+    }
+  } catch (e) {
+    console.log('Redis unavailable, falling back to database');
+  }
+
   const since = new Date(Date.now() - FEED_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
   let postsQuery = supabase
@@ -108,6 +120,13 @@ async function fetchFeedData(myId: string, universityId: string | 'all' | 'mine'
   });
 
   scoredPosts.sort((a: any, b: any) => b._score - a._score);
+
+  try {
+    await redis.setex(cacheKey, 60, scoredPosts);
+  } catch (e) {
+    console.log('Redis SAVE ERROR:', (e as any)?.message || e);
+  }
+
   return scoredPosts;
 }
 
