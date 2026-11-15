@@ -8,8 +8,8 @@ import {
   subscribeComments,
 } from '../lib/feedRealtime';
 
-const POOL_SIZE = 120;
-const MAX_POSTS = 400;
+const POOL_SIZE = 10;
+const MAX_POSTS = 100;
 const FEED_DAYS = 30;
 const SESSION_KEY_KEY = 'lu_feed_session_seed';
 
@@ -30,9 +30,7 @@ function seededRand(seed: number, salt: number) {
 
 // --- Fetch pool ---
 async function fetchFeedData(myId: string, universityId?: string | null) {
-  const since = new Date(
-    Date.now() - FEED_DAYS * 24 * 60 * 60 * 1000
-  ).toISOString();
+  const since = new Date(Date.now() - FEED_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
   // Base posts query
   let postsQuery = supabase
@@ -45,7 +43,6 @@ async function fetchFeedData(myId: string, universityId?: string | null) {
     .limit(POOL_SIZE);
 
   // If a university filter is provided, only fetch posts from that university.
-  // Anonymous posts still count (they have university_id set).
   if (universityId) {
     postsQuery = postsQuery.eq('university_id', universityId);
   }
@@ -99,7 +96,7 @@ function rankFeed(
     else if (ageHrs < 24) score += 15;
     else if (ageHrs < 72) score += 5;
 
-    score += Math.min(60, (p.like_count || 0) * 3);
+    score += Math.min(60, (p.upvotes || 0) * 3);
     score += Math.min(60, (p.comment_count || 0) * 6);
 
     const userSalt = hash32(myId + sessionSeed + p.id);
@@ -137,7 +134,6 @@ export function useFeed(myId: string | null) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const initializedRef = useRef(false);
 
   const loadInitial = useCallback(
     async (isRefresh: boolean) => {
@@ -162,11 +158,9 @@ export function useFeed(myId: string | null) {
     [myId]
   );
 
-  // Initial load
+  // Initial load (Removed initializedRef so it always fetches)
   useEffect(() => {
     if (!myId) return;
-    if (initializedRef.current) return;
-    initializedRef.current = true;
     loadInitial(false);
   }, [myId, loadInitial]);
 
@@ -206,11 +200,18 @@ export function useFeed(myId: string | null) {
           const isMine =
             myId &&
             (payload.new?.user_id === myId || payload.old?.user_id === myId);
-          if (isMine) return { ...p, liked: payload.eventType === 'INSERT' };
+          if (isMine) return { ...p, my_vote: payload.eventType === 'INSERT' ? payload.new.reaction_type : null };
+          const reactionType = payload.new?.reaction_type || payload.old?.reaction_type;
           let delta = 0;
           if (payload.eventType === 'INSERT') delta = 1;
           else if (payload.eventType === 'DELETE') delta = -1;
-          return { ...p, like_count: Math.max(0, (p.like_count || 0) + delta) };
+
+          if (reactionType === 'up') {
+            return { ...p, upvotes: Math.max(0, (p.upvotes || 0) + delta) };
+          } else if (reactionType === 'down') {
+            return { ...p, downvotes: Math.max(0, (p.downvotes || 0) + delta) };
+          }
+          return p;
         });
         return changed ? next : old;
       });

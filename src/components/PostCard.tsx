@@ -1,12 +1,12 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, Image, StyleSheet, Dimensions } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, TouchableOpacity, Image, StyleSheet, Dimensions, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { ThumbsUp, ThumbsDown } from 'lucide-react-native';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useNavigation } from '@react-navigation/native';
 import VerifiedBadge from './VerifiedBadge';
-import { tapLight } from '../lib/haptics';
-import { playLike } from '../lib/sounds';
+import { tapLight, tapHeavy } from '../lib/haptics';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const CARD_H_PADDING = 32;
@@ -40,53 +40,105 @@ function renderTextWithMentions(text: string) {
   );
 }
 
-export default function PostCard({ post, onUpdate, onCommentOpen, onMenu }: any) {
+export default function PostCard({ post, onUpdate, onCommentOpen, onMenu, onPress }: any) {
   const navigation = useNavigation();
   const { profile } = useAuth();
   const isAnon = !!post?.is_anonymous;
   const author = isAnon ? { id: null, full_name: 'Anonymous Student', avatar_url: null, is_verified: false } : post?.profiles;
   const media = post?.post_media || [];
-  const liked = !!post?.liked;
-  const likes = post?.like_count || 0;
   const comments = post?.comment_count || 0;
-  const [localLiked, setLocalLiked] = useState(liked);
-  const [localLikes, setLocalLikes] = useState(likes);
+  
+  const [myVote, setMyVote] = useState<string | null>(post?.my_vote || null);
+  const [upvotes, setUpvotes] = useState(post?.upvotes || 0);
+  const [downvotes, setDownvotes] = useState(post?.downvotes || 0);
   const [expanded, setExpanded] = useState(false);
+  
   const contentLong = (post?.content || '').length > COLLAPSE_CHAR_LIMIT;
 
-  const toggleLike = async () => {
-    tapLight();
+  // Animations
+  const upAnim = useRef(new Animated.Value(1)).current;
+  const downAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (post?.upvotes !== undefined) setUpvotes(post.upvotes);
+    if (post?.downvotes !== undefined) setDownvotes(post.downvotes);
+    if (post?.my_vote !== undefined) setMyVote(post.my_vote);
+  }, [post?.upvotes, post?.downvotes, post?.my_vote]);
+
+  const animateLike = () => {
+    Animated.sequence([
+      Animated.timing(upAnim, { toValue: 1.4, duration: 100, useNativeDriver: true }),
+      Animated.spring(upAnim, { toValue: 1, friction: 3, tension: 40, useNativeDriver: true }),
+    ]).start();
+  };
+
+  const animateDislike = () => {
+    Animated.sequence([
+      Animated.timing(downAnim, { toValue: 0.8, duration: 100, useNativeDriver: true }),
+      Animated.spring(downAnim, { toValue: 1, friction: 3, tension: 40, useNativeDriver: true }),
+    ]).start();
+  };
+
+  const handleVote = async (type: 'up' | 'down') => {
     if (!profile?.id) return;
 
-    const nextLiked = !localLiked;
-    const nextLikes = localLikes + (nextLiked ? 1 : -1);
+    if (type === 'up') {
+      tapLight();
+      animateLike();
+    } else {
+      tapHeavy();
+      animateDislike();
+    }
 
-    setLocalLiked(nextLiked);
-    setLocalLikes(nextLikes);
-    onUpdate?.(post.id, { liked: nextLiked, like_count: nextLikes });
+    const isRemoving = myVote === type;
+    const previousVote = myVote;
+    const previousUp = upvotes;
+    const previousDown = downvotes;
+
+    if (isRemoving) {
+      setMyVote(null);
+      if (type === 'up') setUpvotes(upvotes - 1);
+      else setDownvotes(downvotes - 1);
+    } else {
+      setMyVote(type);
+      if (type === 'up') {
+        setUpvotes(upvotes + 1);
+        if (previousVote === 'down') setDownvotes(downvotes - 1);
+      } else {
+        setDownvotes(downvotes + 1);
+        if (previousVote === 'up') setUpvotes(upvotes - 1);
+      }
+    }
 
     try {
-      if (nextLiked) {
-        try { playLike(); } catch {}
-        const { error } = await supabase.from('reactions').insert({ post_id: post.id, user_id: profile.id, reaction_type: 'like' });
-        if (error && error.code !== '23505') {
-          setLocalLiked(false);
-          setLocalLikes(nextLikes - 1);
-          onUpdate?.(post.id, { liked: false, like_count: nextLikes - 1 });
-          return;
-        }
-        if (author?.id && author.id !== profile.id) {
+      if (previousVote) {
+        await supabase.from('reactions').delete().match({ post_id: post.id, user_id: profile.id });
+      }
+
+      if (!isRemoving) {
+        const { error } = await supabase.from('reactions').insert({
+          post_id: post.id,
+          user_id: profile.id,
+          reaction_type: type
+        });
+        if (error && error.code !== '23505') throw error;
+
+        if (type === 'up' && author?.id && author.id !== profile.id) {
           await supabase.from('notifications').insert({
-            user_id: author.id, actor_id: profile.id, type: 'like',
+            user_id: author.id,
+            actor_id: profile.id,
+            type: 'like',
             title: `${profile.full_name} liked your post`,
-            link: `/posts/${post.id}`, reference_id: post.id,
+            link: `/posts/${post.id}`,
+            reference_id: post.id,
           });
         }
-      } else {
-        await supabase.from('reactions').delete().eq('post_id', post.id).eq('user_id', profile.id);
       }
-    } catch (e) {
-      console.warn('Like failed:', e);
+    } catch (e: any) {
+      console.warn('Vote failed:', e);
+      setMyVote(previousVote);
+      setUpvotes(previousUp);
+      setDownvotes(previousDown);
     }
   };
 
@@ -96,12 +148,9 @@ export default function PostCard({ post, onUpdate, onCommentOpen, onMenu }: any)
 
   return (
     <View style={styles.card}>
-      {/* HEADER */}
       <View style={styles.header}>
-        <TouchableOpacity
-          style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
+        <TouchableOpacity activeOpacity={1} style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
           onPress={() => !isAnon && navigation.navigate('Profile', { id: post.author_id })}
-          activeOpacity={0.7}
           disabled={isAnon}
         >
           {isAnon ? (
@@ -120,19 +169,18 @@ export default function PostCard({ post, onUpdate, onCommentOpen, onMenu }: any)
             <Text style={styles.time}>{timeAgo(post.created_at)}{post.is_edited ? ' · edited' : ''}</Text>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => onMenu?.(post)} style={{ padding: 6, marginLeft: 'auto' }}>
+        <TouchableOpacity activeOpacity={1} onPress={() => onMenu?.(post)} style={{ padding: 6, marginLeft: 'auto' }}>
           <Ionicons name="ellipsis-horizontal" size={20} color="#fff" />
         </TouchableOpacity>
       </View>
 
-      {/* CONTENT */}
       {!!post.content && (
         <View style={{ paddingHorizontal: 4, marginBottom: 10 }}>
           <Text style={styles.content}>
             {renderTextWithMentions(contentLong && !expanded ? post.content.slice(0, COLLAPSE_CHAR_LIMIT) + '…' : post.content)}
           </Text>
           {contentLong && (
-            <TouchableOpacity onPress={() => setExpanded(!expanded)}>
+            <TouchableOpacity activeOpacity={1} onPress={() => setExpanded(!expanded)}>
               <Text style={{ color: '#ef4444', fontSize: 13, fontWeight: '600', marginTop: 4 }}>
                 {expanded ? 'See less' : 'See more'}
               </Text>
@@ -141,38 +189,74 @@ export default function PostCard({ post, onUpdate, onCommentOpen, onMenu }: any)
         </View>
       )}
 
-      {/* MEDIA */}
       {mediaCount > 0 && (
         <View style={styles.mediaContainer}>
           {mediaCount === 1 && (
-            <Image source={{ uri: media[0].media_url }} style={{ width: MEDIA_W, height: singleImageHeight, borderRadius: 12 }} resizeMode="cover" />
+            <TouchableOpacity activeOpacity={1} onPress={() => onPress?.()}>
+              <Image source={{ uri: media[0].media_url }} style={{ width: MEDIA_W, height: singleImageHeight, borderRadius: 12 }} resizeMode="cover" />
+            </TouchableOpacity>
           )}
           {mediaCount >= 2 && (
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, width: MEDIA_W }}>
               {media.slice(0, 4).map((m: any) => (
-                <Image key={m.id} source={{ uri: m.media_url }} style={{ width: gridItemSize, height: gridItemSize, borderRadius: 8 }} resizeMode="cover" />
+                <TouchableOpacity activeOpacity={1} key={m.id} onPress={() => onPress?.()}>
+                  <Image source={{ uri: m.media_url }} style={{ width: gridItemSize, height: gridItemSize, borderRadius: 8 }} resizeMode="cover" />
+                </TouchableOpacity>
               ))}
             </View>
           )}
         </View>
       )}
 
-      {/* COUNTS */}
-      <View style={styles.countsRow}>
-        <Text style={styles.countText}>{localLikes} {localLikes === 1 ? 'like' : 'likes'}</Text>
-        <Text style={styles.countText}>{comments} {comments === 1 ? 'comment' : 'comments'}</Text>
-      </View>
-
       {/* ACTIONS */}
       <View style={styles.actions}>
-        <TouchableOpacity onPress={toggleLike} style={styles.actionBtn}>
-          <Ionicons name={localLiked ? 'heart' : 'heart-outline'} size={24} color={localLiked ? '#ef4444' : '#fff'} />
+        {/* LIKE (THUMBS UP) */}
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => handleVote('up')}
+          style={[styles.actionBtn, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}
+        >
+          <Animated.View style={{ transform: [{ scale: upAnim }] }}>
+            <ThumbsUp
+              size={20}
+              color={myVote === 'up' ? '#ef4444' : '#ffffff'}
+              fill={myVote === 'up' ? '#ef4444' : 'transparent'}
+            />
+          </Animated.View>
+          <Text style={{ color: myVote === 'up' ? '#ef4444' : '#ffffff', fontSize: 13, fontWeight: '600' }}>
+            {upvotes}
+          </Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => onCommentOpen?.(post)} style={styles.actionBtn}>
-          <Ionicons name="chatbubble-outline" size={24} color="#fff" />
+
+        {/* DISLIKE (THUMBS DOWN) */}
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => handleVote('down')}
+          style={[styles.actionBtn, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}
+        >
+          <Animated.View style={{ transform: [{ scale: downAnim }] }}>
+            <ThumbsDown
+              size={20}
+              color={myVote === 'down' ? '#f59e0b' : '#ffffff'}
+              fill={myVote === 'down' ? '#f59e0b' : 'transparent'}
+            />
+          </Animated.View>
+          <Text style={{ color: myVote === 'down' ? '#f59e0b' : '#ffffff', fontSize: 13, fontWeight: '600' }}>
+            {downvotes}
+          </Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.actionBtn}>
-          <Ionicons name="paper-plane-outline" size={24} color="#fff" />
+
+        {/* COMMENT */}
+        <TouchableOpacity activeOpacity={1} onPress={() => onCommentOpen?.(post)} style={[styles.actionBtn, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}>
+          <Ionicons name="chatbubble-outline" size={22} color="#ffffff" />
+          <Text style={{ color: '#ffffff', fontSize: 13, fontWeight: '600' }}>
+            {comments}
+          </Text>
+        </TouchableOpacity>
+
+        {/* SHARE */}
+        <TouchableOpacity activeOpacity={1} style={[styles.actionBtn, { flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: 'auto' }]}>
+          <Ionicons name="arrow-redo-outline" size={22} color="#ffffff" />
         </TouchableOpacity>
       </View>
     </View>
@@ -184,12 +268,9 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   avatar: { width: 40, height: 40, borderRadius: 20 },
   name: { fontSize: 14, fontWeight: '600', color: '#fff' },
-  official: { marginLeft: 6, backgroundColor: 'rgba(239,68,68,0.15)', color: '#ef4444', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 8, fontSize: 10, fontWeight: '700' },
   time: { fontSize: 12, color: '#6d7382', marginTop: 2 },
   content: { fontSize: 15, color: '#fff', lineHeight: 22 },
   mediaContainer: { marginBottom: 10, alignItems: 'flex-start' },
-  countsRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
-  countText: { fontSize: 12, color: '#6d7382' },
-  actions: { flexDirection: 'row', gap: 20, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#1f1f1f' },
+  actions: { flexDirection: 'row', gap: 20, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#1f1f1f', marginTop: 4 },
   actionBtn: { padding: 4 },
 });

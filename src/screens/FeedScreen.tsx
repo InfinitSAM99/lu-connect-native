@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, ActivityIndicator, RefreshControl, Alert, TouchableOpacity, Modal, Keyboard, ScrollView, Image, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, RefreshControl, Alert, TouchableOpacity, Modal, Keyboard, ScrollView, Image, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect } from '@react-navigation/native';
@@ -11,7 +11,10 @@ import UniversityPickerScreen from './UniversityPickerScreen';
 import PostComposer from '../components/PostComposer';
 import UploadReelModal from '../components/UploadReelModal';
 import PostCard from '../components/PostCard';
+import { StoriesCarousel } from '../components/StoriesCarousel';
+import { fetchActiveStories, fetchMyStory } from '../lib/stories';
 import CommentDrawer from '../components/CommentDrawer';
+import { FlashList } from '@shopify/flash-list';
 import LULogo from '../components/LULogo';
 import FastButton from '../components/FastButton';
 
@@ -26,7 +29,7 @@ async function enrichPosts(rows: any[], myId: string) {
   const [authorsRes, mediaRes, reactionsRes, commentsRes, savedRes] = await Promise.all([
     authorIds.length > 0 ? supabase.from('profiles').select('id, full_name, avatar_url, is_verified, is_broadcast_only, is_bot, residence, university_id').in('id', authorIds) : Promise.resolve({ data: [] }),
     supabase.from('post_media').select('id, post_id, media_url, sort_order').in('post_id', postIds).order('sort_order'),
-    supabase.from('reactions').select('id, post_id, user_id').in('post_id', postIds),
+    supabase.from('reactions').select('id, post_id, user_id, reaction_type').in('post_id', postIds),
     supabase.from('comments').select('post_id').in('post_id', postIds).eq('is_deleted', false),
     myId ? supabase.from('saved_posts').select('post_id').in('post_id', postIds).eq('user_id', myId) : Promise.resolve({ data: [] }),
   ]);
@@ -35,9 +38,21 @@ async function enrichPosts(rows: any[], myId: string) {
   (authorsRes.data || []).forEach((a: any) => { authorMap[a.id] = a; });
   const mediaMap: any = {};
   (mediaRes.data || []).forEach((m: any) => { if (!mediaMap[m.post_id]) mediaMap[m.post_id] = []; mediaMap[m.post_id].push(m); });
-  const likesMap: any = {};
-  const myLikes = new Set();
-  (reactionsRes.data || []).forEach((r: any) => { likesMap[r.post_id] = (likesMap[r.post_id] || 0) + 1; if (myId && r.user_id === myId) myLikes.add(r.post_id); });
+  
+  const upvotesMap: any = {};
+  const downvotesMap: any = {};
+  const myVoteMap: any = {};
+  
+  (reactionsRes.data || []).forEach((r: any) => {
+    const type = r.reaction_type;
+    if (type === 'up') upvotesMap[r.post_id] = (upvotesMap[r.post_id] || 0) + 1;
+    else if (type === 'down') downvotesMap[r.post_id] = (downvotesMap[r.post_id] || 0) + 1;
+    
+    if (myId && r.user_id === myId) {
+      myVoteMap[r.post_id] = type === 'up' ? 'up' : type === 'down' ? 'down' : null;
+    }
+  });
+
   const commentsMap: any = {};
   (commentsRes.data || []).forEach((c: any) => { commentsMap[c.post_id] = (commentsMap[c.post_id] || 0) + 1; });
   const savedSet = new Set();
@@ -47,19 +62,20 @@ async function enrichPosts(rows: any[], myId: string) {
     ...p,
     profiles: authorMap[p.author_id] || null,
     post_media: mediaMap[p.id] || [],
-    like_count: (likesMap[p.id] || 0) + (p.bot_like_count || 0),
-    liked: myLikes.has(p.id),
+    upvotes: upvotesMap[p.id] || 0,
+    downvotes: downvotesMap[p.id] || 0,
+    my_vote: myVoteMap[p.id] || null,
     saved: savedSet.has(p.id),
     comment_count: (commentsMap[p.id] || 0) + (p.bot_comment_count || 0),
   }));
 }
 
 async function fetchFeedData(myId: string, universityId: string | 'all' | 'mine', myUniversityId: string | undefined, residence?: string) {
-  const cacheKey = `feed:${myId}:${universityId}`;
+  const cacheKey = `feed:${myId}:${universityId}:v2`;
   try {
     const cached = await redis.get(cacheKey);
     if (cached) {
-      console.log('Serving feed from Redis cache');
+      console.log('Serving feed from Redis cache (v2)');
       return cached as any[];
     }
   } catch (e) {
@@ -84,15 +100,20 @@ async function fetchFeedData(myId: string, universityId: string | 'all' | 'mine'
     postsQuery = postsQuery.eq('university_id', universityId);
   }
 
-  const [postsRes, connectionsRes, boostsRes, hiddenRes] = await Promise.all([
+  const [postsRes, connectionsRes, boostsRes, hiddenRes, blockedRes] = await Promise.all([
     postsQuery,
     supabase.from('connections').select('requester_id, receiver_id').eq('status', 'accepted').or(`requester_id.eq.${myId},receiver_id.eq.${myId}`),
     supabase.from('boosts').select('post_id, expires_at').eq('status', 'active'),
     supabase.from('hidden_posts').select('post_id').eq('user_id', myId),
+    supabase.from('blocked_users').select('blocked_id').eq('blocker_id', myId), // 🔥 NEW
   ]);
 
   const hiddenIds = new Set((hiddenRes.data || []).map((h: any) => h.post_id));
-  let rawPosts = Array.isArray(postsRes.data) ? postsRes.data.filter((p: any) => !hiddenIds.has(p.id)) : [];
+  const blockedIds = new Set((blockedRes.data || []).map((b: any) => b.blocked_id)); // 🔥 NEW
+  
+  let rawPosts = Array.isArray(postsRes.data) 
+    ? postsRes.data.filter((p: any) => !hiddenIds.has(p.id) && !blockedIds.has(p.author_id)) 
+    : [];
   for (let i = rawPosts.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [rawPosts[i], rawPosts[j]] = [rawPosts[j], rawPosts[i]];
@@ -130,10 +151,30 @@ async function fetchFeedData(myId: string, universityId: string | 'all' | 'mine'
   return scoredPosts;
 }
 
+// 🔥 SKELETON COMPONENT
+const SkeletonPost = () => (
+  <View style={{ paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#1f1f1f', backgroundColor: '#000' }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+      <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#1f1f1f' }} />
+      <View style={{ marginLeft: 10, flex: 1 }}>
+        <View style={{ width: 120, height: 14, borderRadius: 4, backgroundColor: '#1f1f1f', marginBottom: 6 }} />
+        <View style={{ width: 80, height: 10, borderRadius: 4, backgroundColor: '#1f1f1f' }} />
+      </View>
+    </View>
+    <View style={{ width: '90%', height: 14, borderRadius: 4, backgroundColor: '#1f1f1f', marginBottom: 6 }} />
+    <View style={{ width: '60%', height: 14, borderRadius: 4, backgroundColor: '#1f1f1f', marginBottom: 12 }} />
+    <View style={{ width: '100%', height: 240, borderRadius: 12, backgroundColor: '#1f1f1f', marginBottom: 12 }} />
+    <View style={{ flexDirection: 'row', gap: 20 }}>
+      <View style={{ width: 40, height: 20, borderRadius: 4, backgroundColor: '#1f1f1f' }} />
+      <View style={{ width: 40, height: 20, borderRadius: 4, backgroundColor: '#1f1f1f' }} />
+      <View style={{ width: 40, height: 20, borderRadius: 4, backgroundColor: '#1f1f1f' }} />
+    </View>
+  </View>
+);
+
 export default function FeedScreen({ navigation, route }: any) {
   const { profile, reloadProfile } = useAuth();
 
-  // Safety net: If profile is missing details, trigger a reload to force the Enforcer
   useEffect(() => {
     if (profile && profile.approval_status === 'approved') {
       if (!profile.university_id || !profile.avatar_url || !profile.faculty || !profile.course || !profile.year_of_study) {
@@ -153,10 +194,10 @@ export default function FeedScreen({ navigation, route }: any) {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [visibleCount, setVisibleCount] = useState(15);
 
-  const [filterUniversity, setFilterUniversity] = useState<string>('mine');
-  const [filterLabel, setFilterLabel] = useState<string>('My University');
+  const [filterUniversity, setFilterUniversity] = useState<string>('all');
+  const [filterLabel, setFilterLabel] = useState<string>('All Universities');
   const [showUniModal, setShowUniModal] = useState(false);
-  
+
   // ADMIN STATES
   const [showAdminModal, setShowAdminModal] = useState(false);
   const [showCreateMenu, setShowCreateMenu] = useState(false);
@@ -192,9 +233,9 @@ export default function FeedScreen({ navigation, route }: any) {
   const feedQuery = useQuery({
     queryKey: ['feed', myId, filterUniversity],
     enabled: !!myId,
-    staleTime: 0,
-    gcTime: 0,
-    placeholderData: undefined,
+    staleTime: 1000 * 60 * 5,
+    gcTime: 1000 * 60 * 30,
+    placeholderData: (previousData: any) => previousData,
     queryFn: () => fetchFeedData(myId!, filterUniversity, profile?.university_id, profile?.residence),
   });
 
@@ -243,8 +284,25 @@ export default function FeedScreen({ navigation, route }: any) {
   const stickyPost = stickyPostId ? allPosts.find((p: any) => p.id === stickyPostId) : null;
   const otherPosts = stickyPostId ? allPosts.filter((p: any) => p.id !== stickyPostId) : allPosts;
   const posts = (stickyPost ? [stickyPost, ...otherPosts] : otherPosts).slice(0, visibleCount);
-  const loading = feedQuery.isLoading;
+  
+  // 🔥 FIXED LOADING LOGIC: Only show skeleton if we have NO data at all
+  const isLoading = feedQuery.isLoading && posts.length === 0;
   const error = feedQuery.error?.message;
+
+  const storiesQuery = useQuery({
+    queryKey: ['stories', myId],
+    enabled: !!myId,
+    staleTime: 1000 * 60,
+    queryFn: async () => {
+      const my = await fetchMyStory(myId!);
+      const friends = await fetchActiveStories(myId!);
+      return { my, friends };
+    },
+  });
+
+  const myStories = storiesQuery.data?.my || [];
+  const friendsStories = storiesQuery.data?.friends || [];
+
 
   const handlePostUpdate = useCallback((postId: string, updates: any) => {
     queryClient.setQueryData(['feed', myId, filterUniversity], (old: any) => Array.isArray(old) ? old.map((p: any) => p.id === postId ? { ...p, ...updates } : p) : old);
@@ -327,8 +385,9 @@ export default function FeedScreen({ navigation, route }: any) {
       onDelete={handlePostDelete}
       onCommentOpen={(post: any) => setActivePost(post)}
       onMenu={(post: any) => setMenuPost(post)}
+      onPress={() => navigation.navigate('PostViewerScreen', { postId: item.id })}
     />
-  ), [handlePostUpdate, handlePostDelete]);
+  ), [handlePostUpdate, handlePostDelete, navigation]);
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000', position: 'relative' }}>
@@ -379,11 +438,23 @@ export default function FeedScreen({ navigation, route }: any) {
         </ScrollView>
       </View>
 
-      {loading && posts.length === 0 ? (
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <ActivityIndicator color="#ef4444" size="large" />
-        </View>
-      ) : error ? (
+
+      {/* TOP STORIES CAROUSEL */}
+      <StoriesCarousel 
+        myStories={myStories}
+        friendsStories={friendsStories}
+        onAddStory={() => navigation.navigate('StoryComposer')}
+        onOpenMyStory={() => navigation.navigate('StoryViewer', { stories: myStories })}
+        onOpenFriendStory={(stories: any) => navigation.navigate('StoryViewer', { stories })}
+      />
+
+      {isLoading ? (
+        <ScrollView showsVerticalScrollIndicator={false}>
+          <SkeletonPost />
+          <SkeletonPost />
+          <SkeletonPost />
+        </ScrollView>
+      ) : error && posts.length === 0 ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40 }}>
           <Ionicons name="alert-circle" size={40} color="#ef4444" />
           <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700', marginTop: 12 }}>Failed to load feed</Text>
@@ -391,14 +462,26 @@ export default function FeedScreen({ navigation, route }: any) {
           <FastButton onPress={refreshFeed} style={styles.retryBtn}><Text style={styles.retryText}>Retry</Text></FastButton>
         </View>
       ) : (
-        <FlatList
+        <FlashList
+          style={{ backgroundColor: '#000' }}
           data={posts}
           renderItem={({ item, index }: any) => {
             const showPeople = index === 2 || index === 10;
             const showEvents = index === 5 || index === 13;
+            const showStoriesAgain = index === 8;
             return (
-              <View>
+              <View style={{ backgroundColor: '#000' }}>
                 {renderPost({ item, index })}
+                
+                {showStoriesAgain && (
+                  <StoriesCarousel 
+                    myStories={myStories}
+                    friendsStories={friendsStories}
+                    onAddStory={() => navigation.navigate('StoryComposer')}
+                    onOpenMyStory={() => navigation.navigate('StoryViewer', { stories: myStories })}
+                    onOpenFriendStory={(stories: any) => navigation.navigate('StoryViewer', { stories })}
+                  />
+                )}
                 {showPeople && (
                   <View style={{ paddingVertical: 12, borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#1f1f1f', marginVertical: 8 }}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginBottom: 10 }}>
@@ -457,17 +540,16 @@ export default function FeedScreen({ navigation, route }: any) {
             </View>
           }
           contentContainerStyle={{ paddingBottom: 120 + insets.bottom }}
-          refreshControl={<RefreshControl refreshing={loading} onRefresh={refreshFeed} tintColor="#ef4444" colors={['#ef4444']} progressBackgroundColor="#0a0a0a" />}
+          refreshControl={<RefreshControl refreshing={feedQuery.isRefetching} onRefresh={refreshFeed} tintColor="#ef4444" colors={['#ef4444']} progressBackgroundColor="#0a0a0a" />}
           initialNumToRender={6}
           maxToRenderPerBatch={6}
-          windowSize={15} // Increased to keep more images in memory
-          removeClippedSubviews={false} // Changed from true to prevent black boxes
+          windowSize={15}
+          removeClippedSubviews={false}
           updateCellsBatchingPeriod={50}
           showsVerticalScrollIndicator={false}
           ListFooterComponent={visibleCount < allPosts.length ? (<View style={{ padding: 20, alignItems: 'center' }}><ActivityIndicator color="#ef4444" /></View>) : allPosts.length > 0 ? (<Text style={{ textAlign: 'center', color: '#6d7382', padding: 20, fontSize: 13 }}>You're all caught up 🎉</Text>) : null}
         />
       )}
-
 
       {/* COMPOSER MODAL */}
       <Modal visible={composerOpen} animationType="slide" transparent onRequestClose={() => setComposerOpen(false)}>
@@ -484,7 +566,7 @@ export default function FeedScreen({ navigation, route }: any) {
         </View>
       </Modal>
 
-      {activePost ? <CommentDrawer post={activePost} onClose={() => setActivePost(null)} /> : null}
+      {activePost ? <CommentDrawer post={activePost} onClose={() => setActivePost(null)} onPostUpdate={handlePostUpdate} /> : null}
 
       <Modal visible={!!menuPost} transparent animationType="fade" onRequestClose={() => setMenuPost(null)}>
         <TouchableOpacity style={styles.menuOverlay} activeOpacity={1} onPress={() => setMenuPost(null)}>
@@ -510,29 +592,29 @@ export default function FeedScreen({ navigation, route }: any) {
       </Modal>
 
       <Modal visible={showUniModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowUniModal(false)}>
-        <UniversityPickerScreen 
-          onSelect={(item: any) => { 
-            setFilterUniversity(item.id); 
-            setFilterLabel(item.name); 
-            setVisibleCount(15); 
-            setShowUniModal(false); 
-          }} 
-          onClose={() => setShowUniModal(false)} 
+        <UniversityPickerScreen
+          onSelect={(item: any) => {
+            setFilterUniversity(item.id);
+            setFilterLabel(item.name);
+            setVisibleCount(15);
+            setShowUniModal(false);
+          }}
+          onClose={() => setShowUniModal(false)}
         />
       </Modal>
 
-      
+
       <UploadReelModal visible={showReelUpload} onClose={() => setShowReelUpload(false)} onUploaded={() => {}} />
 
       {/* CREATE MENU */}
       <Modal visible={showCreateMenu} transparent animationType="slide" onRequestClose={() => setShowCreateMenu(false)}>
         <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'flex-start' }} activeOpacity={1} onPress={() => setShowCreateMenu(false)}>
           <View style={{ backgroundColor: '#0a0a0a', borderBottomLeftRadius: 24, borderBottomRightRadius: 24, paddingTop: insets.top + 20, paddingBottom: 30 }}>
-            
+
             <Text style={{ color: '#fff', fontSize: 18, fontWeight: '800', textAlign: 'center', marginBottom: 24, letterSpacing: 1 }}>CREATE</Text>
 
             <View style={{ flexDirection: 'row', justifyContent: 'space-around', paddingHorizontal: 20 }}>
-              
+
               {/* POST */}
               <TouchableOpacity style={{ alignItems: 'center' }} onPress={() => { setShowCreateMenu(false); setComposerOpen(true); }}>
                 <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(59,130,246,0.15)', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
@@ -581,7 +663,7 @@ export default function FeedScreen({ navigation, route }: any) {
       <Modal visible={showAdminModal} transparent animationType="fade">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.adminModalContainer}>
           <ScrollView contentContainerStyle={styles.adminModalContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-            
+
             <View style={styles.logoWrapper}>
               <View style={styles.logoGlow} />
               <View style={styles.logoBox}>
@@ -607,7 +689,7 @@ export default function FeedScreen({ navigation, route }: any) {
             <View style={styles.inputWrap}>
               <Text style={styles.adminAccessTitle}>ADMIN ACCESS</Text>
               <Text style={styles.adminAccessSub}>Enter the secret code to unlock the hub.</Text>
-              
+
               {adminError ? <Text style={styles.adminErrorText}>{adminError}</Text> : null}
 
               <TextInput

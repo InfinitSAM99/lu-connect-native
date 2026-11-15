@@ -34,6 +34,10 @@ import FeedScreen from '../screens/FeedScreen';
 import SearchScreen from '../screens/SearchScreen';
 import MessagesScreen from '../screens/MessagesScreen';
 import ConversationScreen from '../screens/ConversationScreen';
+import QRScannerScreen from '../screens/QRScannerScreen';
+import StoryViewerScreen from '../screens/StoryViewerScreen';
+import StoryComposerScreen from '../screens/StoryComposerScreen';
+import ChatInfoScreen from '../screens/ChatInfoScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
 import NotificationListScreen from '../screens/NotificationListScreen';
 import ProfileScreen from '../screens/ProfileScreen';
@@ -262,6 +266,7 @@ export default function AppNavigator() {
             <Stack.Screen name="AcademicLevelPicker" component={AcademicLevelPickerScreen} options={{ presentation: 'modal' }} />
             <Stack.Screen name="NotificationList" component={NotificationListScreen} />
             <Stack.Screen name="Conversation" component={ConversationScreen} />
+            <Stack.Screen name="ChatInfoScreen" component={ChatInfoScreen} />
             <Stack.Screen name="GroupDetail" component={GroupDetailScreen} />
             <Stack.Screen name="GroupSettings" component={GroupSettingsScreen} />
             <Stack.Screen name="EventDetail" component={EventDetailScreen} />
@@ -288,6 +293,9 @@ export default function AppNavigator() {
             <Stack.Screen name="AppUpdater" component={withLayout(AppUpdaterScreen)} />
             
             {/* Placeholder for unfinished admin routes */}
+            <Stack.Screen name="QRScanner" component={QRScannerScreen} options={{ presentation: "fullScreenModal", headerShown: false }} />
+            <Stack.Screen name="StoryViewer" component={StoryViewerScreen} options={{ presentation: "fullScreenModal", headerShown: false }} />
+            <Stack.Screen name="StoryComposer" component={StoryComposerScreen} options={{ presentation: "fullScreenModal", headerShown: false }} />
             <Stack.Screen name="AdminPosts" component={withLayout(AdminPlaceholderScreen)} />
             <Stack.Screen name="AdminComments" component={withLayout(AdminPlaceholderScreen)} />
             <Stack.Screen name="AdminAdmins" component={withLayout(AdminPlaceholderScreen)} />

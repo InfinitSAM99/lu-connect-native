@@ -1,22 +1,25 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Image, Modal, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, Keyboard } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Image, Modal, KeyboardAvoidingView, Platform, Alert, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { ThumbsUp, ThumbsDown } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { tapLight, tapHeavy } from '../lib/haptics';
 
-export default function CommentDrawer({ post, onClose }: { post: any; onClose: () => void }) {
+export default function CommentDrawer({ post, onClose, onPostUpdate }: { post: any; onClose: () => void; onPostUpdate?: (postId: string, updates: any) => void }) {
   const { profile } = useAuth();
   const insets = useSafeAreaInsets();
   const [comments, setComments] = useState<any[]>([]);
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(true);
   const [replyingTo, setReplyingTo] = useState<any>(null);
-  const [likes, setLikes] = useState(post?.like_count || 0);
-  const [liked, setLiked] = useState(!!post?.liked);
   const [sending, setSending] = useState(false);
-    const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<ScrollView>(null);
 
+  const [myPostVote, setMyPostVote] = useState<string | null>(post?.my_vote || null);
+  const [postUpvotes, setPostUpvotes] = useState(post?.upvotes || 0);
+  const [postDownvotes, setPostDownvotes] = useState(post?.downvotes || 0);
 
   const load = async () => {
     const { data: rows, error } = await supabase
@@ -25,24 +28,33 @@ export default function CommentDrawer({ post, onClose }: { post: any; onClose: (
       .eq('post_id', post.id)
       .eq('is_deleted', false)
       .order('created_at', { ascending: true });
-    if (error) { console.error('comment load error:', error); setLoading(false); return; }
+      
+    if (error) { 
+      console.error('comment load error:', error); 
+      setLoading(false); 
+      return; 
+    }
     setComments(rows || []);
     setLoading(false);
   };
 
-  const loadLikes = async () => {
-    const { count } = await supabase.from('reactions').select('*', { count: 'exact', head: true }).eq('post_id', post.id);
-    setLikes(count || 0);
-    if (profile?.id) {
-      const { data: mine } = await supabase.from('reactions').select('id').eq('post_id', post.id).eq('user_id', profile.id).maybeSingle();
-      setLiked(!!mine);
-    }
+  const loadPostVotes = async () => {
+    const { data } = await supabase.from('reactions').select('user_id, reaction_type').eq('post_id', post.id).is('comment_id', null);
+    let up = 0, down = 0, myVote = null;
+    (data || []).forEach((r: any) => {
+      if (r.reaction_type === 'up') up++;
+      else if (r.reaction_type === 'down') down++;
+      if (r.user_id === profile?.id) myVote = r.reaction_type;
+    });
+    setPostUpvotes(up);
+    setPostDownvotes(down);
+    setMyPostVote(myVote);
   };
 
   useEffect(() => {
     if (!post?.id) return;
     load();
-    loadLikes();
+    loadPostVotes();
     const channelName = `comments-${post.id}-${Date.now()}`;
     const ch = supabase.channel(channelName).on(
       'postgres_changes',
@@ -53,15 +65,45 @@ export default function CommentDrawer({ post, onClose }: { post: any; onClose: (
     return () => { clearTimeout(timer); supabase.removeChannel(ch); };
   }, [post.id]);
 
-  const toggleLike = async () => {
+  const handlePostVote = async (type: 'up' | 'down') => {
     if (!profile?.id) return;
-    const nowLiked = !liked;
-    setLiked(nowLiked);
-    setLikes((n) => n + (nowLiked ? 1 : -1));
-    if (nowLiked) {
-      await supabase.from('reactions').insert({ post_id: post.id, user_id: profile.id, type: 'like' });
+    if (type === 'up') tapLight(); else tapHeavy();
+    
+    const isRemoving = myPostVote === type;
+    const previousVote = myPostVote;
+
+    let newUp = postUpvotes;
+    let newDown = postDownvotes;
+    let newVote = type;
+
+    if (isRemoving) {
+      newVote = null;
+      if (type === 'up') newUp -= 1;
+      else newDown -= 1;
     } else {
-      await supabase.from('reactions').delete().eq('post_id', post.id).eq('user_id', profile.id);
+      if (type === 'up') {
+        newUp += 1;
+        if (previousVote === 'down') newDown -= 1;
+      } else {
+        newDown += 1;
+        if (previousVote === 'up') newUp -= 1;
+      }
+    }
+
+    setMyPostVote(newVote);
+    setPostUpvotes(newUp);
+    setPostDownvotes(newDown);
+
+    if (onPostUpdate) {
+      onPostUpdate(post.id, { upvotes: newUp, downvotes: newDown, my_vote: newVote });
+    }
+
+    try {
+      if (previousVote) await supabase.from('reactions').delete().match({ post_id: post.id, user_id: profile.id });
+      if (!isRemoving) await supabase.from('reactions').insert({ post_id: post.id, user_id: profile.id, reaction_type: type });
+    } catch (e) {
+      setMyPostVote(previousVote);
+      loadPostVotes();
     }
   };
 
@@ -71,27 +113,25 @@ export default function CommentDrawer({ post, onClose }: { post: any; onClose: (
     const parentId = replyingTo?.id || null;
     setText(''); setReplyingTo(null);
     setSending(true);
+    
+    const newCommentCount = (post.comment_count || 0) + 1;
+
     const { error } = await supabase.from('comments').insert({
       post_id: post.id, author_id: profile.id, content, parent_id: parentId,
     });
+    
     setSending(false);
-    if (error) { Alert.alert('Comment failed', error.message); setText(content); return; }
-
-    let notifyUserId = null;
-    let title = '';
-    if (parentId) {
-      const parent = comments.find((c) => c.id === parentId);
-      if (parent && parent.author_id !== profile.id) { notifyUserId = parent.author_id; title = `${profile.full_name} replied to your comment`; }
-    } else if (post.author_id && post.author_id !== profile.id) {
-      notifyUserId = post.author_id; title = `${profile.full_name} commented on your post`;
+    
+    if (error) { 
+      Alert.alert('Comment failed', error.message); 
+      setText(content); 
+      return; 
     }
-    if (notifyUserId) {
-      await supabase.from('notifications').insert({
-        user_id: notifyUserId, actor_id: profile.id, type: 'comment',
-        title, body: content.slice(0, 100),
-        link: `/posts/${post.id}`, reference_id: post.id,
-      });
+    
+    if (onPostUpdate) {
+      onPostUpdate(post.id, { comment_count: newCommentCount });
     }
+    
     load();
   };
 
@@ -99,8 +139,11 @@ export default function CommentDrawer({ post, onClose }: { post: any; onClose: (
     Alert.alert('Delete comment', 'Are you sure?', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: async () => {
-          const { error } = await supabase.from('comments').update({ is_deleted: true }).eq('id', c.id).eq('author_id', profile.id);
-          if (error) return Alert.alert('Delete failed', error.message);
+          await supabase.from('comments').update({ is_deleted: true }).eq('id', c.id).eq('author_id', profile.id);
+          
+          if (onPostUpdate) {
+            onPostUpdate(post.id, { comment_count: Math.max(0, (post.comment_count || 1) - 1) });
+          }
           load();
         }
       }
@@ -114,26 +157,33 @@ export default function CommentDrawer({ post, onClose }: { post: any; onClose: (
     repliesByParent[c.parent_id].push(c);
   });
 
-  const media = post?.post_media?.[0];
-  const author = post?.profiles;
-
   const renderComment = (c: any, isReply = false) => (
-    <View key={c.id} style={{ flexDirection: 'row', gap: 10, marginBottom: isReply ? 10 : 14, marginLeft: isReply ? 40 : 0 }}>
-      <Image source={{ uri: c.author?.avatar_url || `https://api.dicebear.com/7.x/initials/svg?seed=${c.author?.full_name || 'U'}` }} style={{ width: isReply ? 26 : 32, height: isReply ? 26 : 32, borderRadius: isReply ? 13 : 16 }} />
+    <View key={c.id} style={{ flexDirection: 'row', gap: 10, marginBottom: isReply ? 0 : 16 }}>
+      <Image source={{ uri: c.author?.avatar_url || `https://api.dicebear.com/7.x/initials/svg?seed=${c.author?.full_name || 'U'}` }} style={{ width: isReply ? 28 : 32, height: isReply ? 28 : 32, borderRadius: isReply ? 14 : 16 }} />
       <View style={{ flex: 1 }}>
-        <View style={{ backgroundColor: '#141414', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 16 }}>
+        <View style={{ backgroundColor: '#141414', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 16, borderTopLeftRadius: 4 }}>
           <Text style={{ fontSize: 13, fontWeight: '600', color: '#fff' }}>{c.author?.full_name || 'Student'}</Text>
           <Text style={{ fontSize: 14, marginTop: 3, color: '#fff', lineHeight: 20 }}>{c.content}</Text>
         </View>
-        <View style={{ flexDirection: 'row', gap: 12, marginTop: 4 }}>
-          {!isReply && (
-            <TouchableOpacity onPress={() => setReplyingTo({ id: c.id, name: c.author?.full_name || 'Student' })}>
-              <Text style={{ fontSize: 12, color: '#6d7382' }}>Reply</Text>
-            </TouchableOpacity>
-          )}
+        
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 6, marginLeft: 4 }}>
+          {/* 🔥 FIX: Allow replying to replies */}
+          <TouchableOpacity onPress={() => setReplyingTo({ id: c.id, name: c.author?.full_name || 'Student' })}>
+            <Text style={{ fontSize: 12, color: '#6d7382', fontWeight: '600' }}>Reply</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <ThumbsUp size={14} color="#6d7382" />
+            <Text style={{ fontSize: 11, color: '#6d7382' }}>0</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <ThumbsDown size={14} color="#6d7382" />
+            <Text style={{ fontSize: 11, color: '#6d7382' }}>0</Text>
+          </TouchableOpacity>
+
           {c.author_id === profile?.id && (
             <TouchableOpacity onPress={() => deleteComment(c)}>
-              <Text style={{ fontSize: 12, color: '#ef4444' }}>Delete</Text>
+              <Text style={{ fontSize: 12, color: '#ef4444', fontWeight: '600' }}>Delete</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -143,15 +193,10 @@ export default function CommentDrawer({ post, onClose }: { post: any; onClose: (
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView 
-        style={{ flex: 1 }} 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
-      >
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <View style={styles.overlay}>
           <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 10) }]}>
-            
-            {/* PREMIUM HANDLE + CLOSE */}
+
             <View style={styles.handleRow}>
               <View style={styles.handle} />
               <TouchableOpacity onPress={onClose} style={{ position: 'absolute', right: 12, top: 4 }}>
@@ -159,59 +204,57 @@ export default function CommentDrawer({ post, onClose }: { post: any; onClose: (
               </TouchableOpacity>
             </View>
 
-            {/* HERO HEADER */}
             <View style={{ alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#1f1f1f' }}>
-              <Ionicons name="chatbubbles" size={44} color="#ef4444" />
-              <Text style={{ fontSize: 18, fontWeight: '700', color: '#fff', marginTop: 6 }}>Comments</Text>
+              <Text style={{ fontSize: 18, fontWeight: '800', color: '#fff' }}>Comments</Text>
               <Text style={{ fontSize: 12, color: '#6d7382', marginTop: 2 }}>{comments.length} {comments.length === 1 ? 'comment' : 'comments'}</Text>
             </View>
 
-            {/* PINNED POST */}
-            <View style={styles.postPreview}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, paddingVertical: 12 }}>
-                <Image source={{ uri: author?.avatar_url || `https://api.dicebear.com/7.x/initials/svg?seed=${author?.full_name || 'U'}` }} style={{ width: 36, height: 36, borderRadius: 18 }} />
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontWeight: '600', fontSize: 14, color: '#fff' }}>{author?.full_name || 'User'}</Text>
-                  <Text style={{ fontSize: 11, color: '#6d7382' }}>{new Date(post.created_at).toLocaleString()}</Text>
-                </View>
-              </View>
-              {post.content && <Text style={{ paddingHorizontal: 14, paddingBottom: 10, fontSize: 14, color: '#fff', lineHeight: 20 }}>{post.content}</Text>}
-              {media?.media_url && (
-                <View style={{ backgroundColor: '#000', maxHeight: 200 }}>
-                  <Image source={{ uri: media.media_url }} style={{ width: '100%', height: 180, resizeMode: 'contain' }} />
-                </View>
-              )}
-              <View style={{ flexDirection: 'row', gap: 20, paddingHorizontal: 14, paddingVertical: 10 }}>
-                <TouchableOpacity onPress={toggleLike} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Ionicons name={liked ? 'heart' : 'heart-outline'} size={18} color={liked ? '#ef4444' : '#fff'} />
-                  <Text style={{ color: liked ? '#ef4444' : '#fff', fontSize: 13, fontWeight: liked ? '700' : '400' }}>{likes}</Text>
-                </TouchableOpacity>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Ionicons name="chatbubble-outline" size={18} color="#fff" />
-                  <Text style={{ color: '#fff', fontSize: 13 }}>{comments.length}</Text>
-                </View>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Ionicons name="paper-plane-outline" size={18} color="#fff" />
-                  <Text style={{ color: '#fff', fontSize: 13 }}>Share</Text>
-                </View>
-              </View>
-            </View>
-
-            {/* COMMENTS */}
             <ScrollView ref={scrollRef} style={{ flex: 1 }} contentContainerStyle={{ padding: 16 }} keyboardShouldPersistTaps="always">
               {loading ? <ActivityIndicator color="#ef4444" /> : topLevel.length === 0 ? (
-                <Text style={{ color: '#6d7382', textAlign: 'center', padding: 20 }}>No comments yet. Be the first!</Text>
+                <View style={{ alignItems: 'center', padding: 40 }}>
+                  <Ionicons name="chatbubble-outline" size={40} color="#1f1f1f" style={{ marginBottom: 10 }} />
+                  <Text style={{ color: '#6d7382', textAlign: 'center', fontSize: 15 }}>No comments yet. Be the first!</Text>
+                </View>
               ) : (
-                topLevel.map((c) => (
-                  <View key={c.id}>
-                    {renderComment(c, false)}
-                    {(repliesByParent[c.id] || []).map((r) => renderComment(r, true))}
-                  </View>
-                ))
+                topLevel.map((c) => {
+                  const replies = repliesByParent[c.id] || [];
+                  return (
+                    <View key={c.id} style={{ marginBottom: 16 }}>
+                      {renderComment(c, false)}
+                      
+                      {/* 🔥 THE FACEBOOK-STYLE THREAD LINES (Pure Flexbox, No SVG) */}
+                      {replies.length > 0 && (
+                        <View style={{ flexDirection: 'row', marginTop: 0 }}>
+                          {/* The left border column */}
+                          <View style={{ width: 42, alignItems: 'center', marginLeft: -5 }}>
+                            <View style={{ 
+                              width: 24, 
+                              flex: 1, 
+                              borderLeftWidth: 2, 
+                              borderBottomWidth: 2, 
+                              borderColor: '#3f3f3f', 
+                              borderBottomLeftRadius: 8,
+                              marginTop: 4, // Push down slightly to align with reply avatar center
+                              marginBottom: 14 // Stop at the center of the last reply
+                            }} />
+                          </View>
+                          
+                          {/* The replies container */}
+                          <View style={{ flex: 1, paddingTop: 8 }}>
+                            {replies.map((r, idx) => (
+                              <View key={r.id} style={{ marginBottom: idx === replies.length - 1 ? 0 : 16 }}>
+                                {renderComment(r, true)}
+                              </View>
+                            ))}
+                          </View>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })
               )}
             </ScrollView>
 
-            {/* REPLY BAR */}
             {replyingTo && (
               <View style={styles.replyBar}>
                 <Text style={{ flex: 1, color: '#fff', fontSize: 13 }}>Replying to <Text style={{ fontWeight: '700' }}>{replyingTo.name}</Text></Text>
@@ -221,7 +264,6 @@ export default function CommentDrawer({ post, onClose }: { post: any; onClose: (
               </View>
             )}
 
-            {/* COMPOSER */}
             <View style={styles.composer}>
               <TextInput
                 style={styles.input}
@@ -231,8 +273,8 @@ export default function CommentDrawer({ post, onClose }: { post: any; onClose: (
                 onChangeText={setText}
                 multiline
               />
-              <TouchableOpacity 
-                style={[styles.sendBtn, (!text.trim() || sending) && { opacity: 0.5 }]} 
+              <TouchableOpacity
+                style={[styles.sendBtn, (!text.trim() || sending) && { opacity: 0.5 }]}
                 onPress={submit}
                 disabled={!text.trim() || sending}
               >
@@ -248,10 +290,9 @@ export default function CommentDrawer({ post, onClose }: { post: any; onClose: (
 
 const styles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
-  sheet: { backgroundColor: '#000', borderTopLeftRadius: 20, borderTopRightRadius: 20, height: '95%', overflow: 'hidden' },
+  sheet: { backgroundColor: '#000', borderTopLeftRadius: 20, borderTopRightRadius: 20, height: '80%', overflow: 'hidden' },
   handleRow: { alignItems: 'center', paddingTop: 8, paddingBottom: 4, position: 'relative' },
   handle: { width: 44, height: 4, borderRadius: 2, backgroundColor: '#6d7382', opacity: 0.5 },
-  postPreview: { borderBottomWidth: 1, borderBottomColor: '#1f1f1f', flexShrink: 0 },
   replyBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#141414', borderTopWidth: 1, borderTopColor: '#1f1f1f' },
   composer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10, backgroundColor: '#0a0a0a', borderTopWidth: 1, borderTopColor: '#1f1f1f' },
   input: { flex: 1, backgroundColor: '#141414', borderRadius: 22, paddingHorizontal: 16, paddingVertical: 10, color: '#fff', fontSize: 15, maxHeight: 100 },

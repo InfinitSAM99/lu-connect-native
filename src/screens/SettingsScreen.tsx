@@ -1,20 +1,25 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
+import { PremiumAvatar } from '../components/PremiumBadge';
 
-function FlatRow({ onClick, iconName, title, subtitle, danger }: any) {
+function SettingRow({ onClick, iconName, title, subtitle, danger, isLast, iconColor }: any) {
   return (
-    <TouchableOpacity style={styles.flatRow} onPress={onClick} activeOpacity={0.7}>
+    <TouchableOpacity 
+      style={[styles.row, !isLast && styles.rowBorder]} 
+      onPress={onClick} 
+      activeOpacity={0.6}
+    >
       <View style={styles.iconWrap}>
-        <Ionicons name={iconName} size={22} color={danger ? '#ef4444' : '#6d7382'} />
+        <Ionicons name={iconName} size={20} color={danger ? '#ef4444' : (iconColor || '#fff')} />
       </View>
       <View style={styles.textWrap}>
-        <Text style={[styles.flatRowTitle, danger && { color: '#ef4444' }]}>{title}</Text>
-        {subtitle && <Text style={styles.flatRowSubtitle}>{subtitle}</Text>}
+        <Text style={[styles.rowTitle, danger && { color: '#ef4444' }]}>{title}</Text>
+        {subtitle && <Text style={styles.rowSubtitle}>{subtitle}</Text>}
       </View>
-      <Ionicons name="chevron-forward" size={20} color="#1f1f1f" />
+      <Ionicons name="chevron-forward" size={18} color="#3f3f3f" />
     </TouchableOpacity>
   );
 }
@@ -22,9 +27,11 @@ function FlatRow({ onClick, iconName, title, subtitle, danger }: any) {
 export default function SettingsScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
   const { profile, signOut } = useAuth();
+  const tier = profile?.subscription_tier || 'free';
 
   return (
     <View style={styles.container}>
+      {/* HEADER */}
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
@@ -34,63 +41,63 @@ export default function SettingsScreen({ navigation }: any) {
       </View>
 
       <ScrollView contentContainerStyle={{ paddingBottom: 100 }}>
+        
         {/* PROFILE CARD */}
-        <TouchableOpacity 
-          style={styles.profileCard} 
+        <TouchableOpacity
+          style={styles.profileCard}
           onPress={() => navigation.navigate('Profile', { id: profile?.id })}
+          activeOpacity={0.8}
         >
-          {profile?.avatar_url ? (
-            <Image source={{ uri: profile.avatar_url }} style={styles.avatar} />
-          ) : (
-            <View style={[styles.avatar, styles.avatarPlaceholder]}>
-              <Text style={styles.avatarInitial}>{profile?.full_name?.[0]?.toUpperCase() || 'U'}</Text>
+          <PremiumAvatar avatarUrl={profile?.avatar_url} fullName={profile?.full_name || 'User'} tier={tier as any} size={64} />
+          <View style={{ flex: 1, marginLeft: 16 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={styles.profileName}>{profile?.full_name || 'User'}</Text>
             </View>
-          )}
-          <View style={{ flex: 1 }}>
-            <Text style={styles.profileName}>{profile?.full_name || 'User'}</Text>
             <Text style={styles.profileUni}>{profile?.university_name || 'Student'}</Text>
           </View>
           <Ionicons name="chevron-forward" size={20} color="#6d7382" />
         </TouchableOpacity>
 
-        <View style={styles.divider} />
-
-        {/* SECURITY */}
-        <Text style={styles.sectionHeader}>SECURITY</Text>
-        <FlatRow 
-          onClick={() => navigation.navigate('Security')} 
-          iconName="shield-checkmark-outline" 
-          title="Security Hub" 
-          subtitle="Pattern, questions, Account ID & password reset" 
-        />
-        <FlatRow onClick={() => navigation.navigate('AccountsCenter')} iconName="person-outline" title="Accounts Center" subtitle="Password, personal details & professional mode" />
-        
-        <View style={styles.divider} />
+        {/* ACCOUNT */}
+        <Text style={styles.sectionHeader}>Account</Text>
+        <View style={styles.cardGroup}>
+          <SettingRow onClick={() => navigation.navigate('AccountsCenter')} iconName="person-circle-outline" title="Accounts Center" subtitle="Password, personal details" />
+          <SettingRow onClick={() => navigation.navigate('Security')} iconName="shield-checkmark-outline" title="Security Hub" subtitle="Pattern, questions, password" />
+          <SettingRow onClick={() => navigation.navigate('LoginActivity')} iconName="desktop-outline" title="Login Activity" subtitle="Where you're logged in" />
+          <SettingRow onClick={() => navigation.navigate('BlockedUsers')} iconName="ban-outline" title="Blocked Users" subtitle="Manage blocked accounts" isLast />
+        </View>
 
         {/* PREFERENCES */}
-        <Text style={styles.sectionHeader}>PREFERENCES</Text>
-        <FlatRow onClick={() => navigation.navigate('Preferences')} iconName="color-palette-outline" title="Preferences" subtitle="Theme, vibration, notifications & sound" />
-        
-        <View style={styles.divider} />
+        <Text style={styles.sectionHeader}>Preferences</Text>
+        <View style={styles.cardGroup}>
+          <SettingRow onClick={() => navigation.navigate('Preferences')} iconName="color-palette-outline" title="Appearance & Theme" subtitle="Dark mode, chat themes" />
+          <SettingRow onClick={() => navigation.navigate('NotificationSettings')} iconName="notifications-outline" title="Notifications" subtitle="Messages, likes, follows" isLast />
+        </View>
 
         {/* SUPPORT */}
-        <Text style={styles.sectionHeader}>SUPPORT</Text>
-        <FlatRow onClick={() => navigation.navigate('Announcements')} iconName="megaphone-outline" title="Announcements" subtitle="Campus-wide updates" />
-        <FlatRow onClick={() => navigation.navigate('Events')} iconName="calendar-outline" title="Events" subtitle="What is happening on campus" />
-        
-        <View style={styles.divider} />
+        <Text style={styles.sectionHeader}>Support & More</Text>
+        <View style={styles.cardGroup}>
+          <SettingRow onClick={() => navigation.navigate('Announcements')} iconName="megaphone-outline" title="Announcements" subtitle="Campus-wide updates" />
+          <SettingRow onClick={() => navigation.navigate('Events')} iconName="calendar-outline" title="Events" subtitle="What's happening on campus" />
+          <SettingRow onClick={() => {}} iconName="help-circle-outline" title="Help Center" subtitle="Get support" isLast />
+        </View>
 
         {/* LOGOUT */}
-        <TouchableOpacity style={styles.flatRow} onPress={signOut}>
-          <View style={styles.iconWrap}>
-            <Ionicons name="log-out-outline" size={22} color="#ef4444" />
-          </View>
-          <View style={styles.textWrap}>
-            <Text style={[styles.flatRowTitle, { color: '#ef4444' }]}>Sign out</Text>
-          </View>
-        </TouchableOpacity>
-        
-        <View style={styles.divider} />
+        <View style={[styles.cardGroup, { marginTop: 24 }]}>
+          <TouchableOpacity style={styles.row} onPress={signOut} activeOpacity={0.6}>
+            <View style={styles.iconWrap}>
+              <Ionicons name="log-out-outline" size={20} color="#ef4444" />
+            </View>
+            <View style={styles.textWrap}>
+              <Text style={[styles.rowTitle, { color: '#ef4444' }]}>Log out</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        <Text style={{ textAlign: 'center', color: '#3f3f3f', fontSize: 12, marginTop: 24, fontWeight: '600' }}>
+          LU CONNECT v1.0.0
+        </Text>
+
       </ScrollView>
     </View>
   );
@@ -101,21 +108,20 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#1f1f1f' },
   backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { color: '#fff', fontSize: 13, fontWeight: '800', letterSpacing: 2 },
-  
-  profileCard: { flexDirection: 'row', alignItems: 'center', gap: 16, padding: 20, marginHorizontal: 16, marginTop: 16, backgroundColor: '#0a0a0a', borderRadius: 16, borderWidth: 1, borderColor: '#1f1f1f' },
-  avatar: { width: 60, height: 60, borderRadius: 30, borderWidth: 2, borderColor: '#ef4444' },
-  avatarPlaceholder: { backgroundColor: '#141414', alignItems: 'center', justifyContent: 'center' },
-  avatarInitial: { color: '#ef4444', fontSize: 24, fontWeight: '800' },
-  profileName: { color: '#fff', fontSize: 16, fontWeight: '700', marginBottom: 4 },
+
+  profileCard: { flexDirection: 'row', alignItems: 'center', padding: 16, marginHorizontal: 16, marginTop: 20, marginBottom: 8, backgroundColor: '#0a0a0a', borderRadius: 16, borderWidth: 1, borderColor: '#1f1f1f' },
+  profileName: { color: '#fff', fontSize: 18, fontWeight: '700', marginBottom: 2 },
   profileUni: { color: '#6d7382', fontSize: 13 },
+
+  sectionHeader: { color: '#6d7382', fontSize: 12, fontWeight: '700', letterSpacing: 0.5, paddingHorizontal: 20, paddingTop: 24, paddingBottom: 8 },
   
-  sectionHeader: { color: '#6d7382', fontSize: 11, fontWeight: '800', letterSpacing: 2, paddingHorizontal: 16, paddingTop: 24, paddingBottom: 8 },
+  // The premium card look for grouped rows
+  cardGroup: { backgroundColor: '#0a0a0a', borderRadius: 16, marginHorizontal: 16, borderWidth: 1, borderColor: '#1f1f1f', overflow: 'hidden' },
   
-  flatRow: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingVertical: 16, paddingHorizontal: 16 },
-  iconWrap: { width: 32, alignItems: 'center' },
+  row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16 },
+  rowBorder: { borderBottomWidth: 1, borderBottomColor: '#1f1f1f' },
+  iconWrap: { width: 32, alignItems: 'flex-start' },
   textWrap: { flex: 1 },
-  flatRowTitle: { fontWeight: '500', fontSize: 15, color: '#fff' },
-  flatRowSubtitle: { fontSize: 13, color: '#6d7382', marginTop: 2 },
-  
-  divider: { height: 1, backgroundColor: '#1f1f1f', marginHorizontal: 16 },
+  rowTitle: { fontWeight: '600', fontSize: 15, color: '#fff' },
+  rowSubtitle: { fontSize: 12, color: '#6d7382', marginTop: 2 },
 });

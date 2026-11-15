@@ -47,34 +47,32 @@ export default function UniversityPickerScreen({ navigation, route, onSelect, on
   }, [universities, q]);
 
   const handlePick = async (item: any) => {
+    // 🔥 FIX: If this picker was opened by a parent (like the Feed), ONLY trigger onSelect.
+    // Do not save to the profile database.
+    if (onSelect) {
+      onSelect(item);
+      return;
+    }
+
+    // Otherwise (e.g. onboarding), save to DB
     setSaving(true);
     try {
-      // ALWAYS save to DB first
       if (user?.id) {
         const { error } = await supabase.from('profiles').update({
           university_id: item.id,
           university_name: item.name,
         }).eq('id', user.id);
         if (error) throw new Error(error.message);
-        
-        // 1. Instantly update the local app state so the Nudge disappears
+
         if (setProfile && profile) {
           setProfile({ ...profile, university_id: item.id, university_name: item.name });
         }
-        
-        // 2. Fetch the fresh profile from DB to be extra safe
+
         if (reloadProfile) await reloadProfile();
         queryClient.invalidateQueries({ queryKey: ['feed'] });
         queryClient.invalidateQueries({ queryKey: ['profile'] });
       }
 
-      // If a parent modal called us, hand off the selection
-      if (onSelect) {
-        onSelect(item);
-        return;
-      }
-
-      // Navigate back to wherever we came from
       if (returnTo === 'Login') {
         navigation.navigate({ name: 'Login', params: { pickedUniversity: item }, merge: true });
       } else if (returnTo === 'ProfileEdit') {
@@ -102,7 +100,7 @@ export default function UniversityPickerScreen({ navigation, route, onSelect, on
         <TouchableOpacity onPress={handleBack} style={{ padding: 8 }}>
           <Ionicons name="chevron-back" size={26} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.title}>SELECT YOUR UNIVERSITY</Text>
+        <Text style={styles.title}>BROWSE UNIVERSITIES</Text>
         <View style={{ width: 42 }} />
       </View>
 

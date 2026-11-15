@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import PostCard from '../components/PostCard';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Image, ActivityIndicator, Alert, Modal, Dimensions, Animated, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import QRCode from 'react-native-qrcode-svg';
+import { Modal, Share } from 'react-native';
 import VerifiedBadge, { OfficialBadge } from '../components/VerifiedBadge';
 import * as ImagePicker from 'expo-image-picker';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -83,6 +85,7 @@ export default function ProfileScreen({ route, navigation }: any) {
   
   const [uploading, setUploading] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [qrModalVisible, setQrModalVisible] = useState(false);
   const [postsOpen, setPostsOpen] = useState(false);
   const [viewerTarget, setViewerTarget] = useState<any>(null); 
 
@@ -374,6 +377,14 @@ export default function ProfileScreen({ route, navigation }: any) {
                 
             </View>
             <Text style={{ fontSize: 13, color: '#6d7382', marginTop: 4, textAlign: 'center', paddingHorizontal: 20 }}>Personal details shared on this profile</Text>
+
+            <TouchableOpacity
+              onPress={() => setQrModalVisible(true)}
+              style={{ marginTop: 16, backgroundColor: 'rgba(239,68,68,0.15)', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 24, flexDirection: 'row', alignItems: 'center', gap: 8 }}
+            >
+              <Ionicons name="qr-code" size={20} color="#ef4444" />
+              <Text style={{ color: '#ef4444', fontWeight: '700', fontSize: 14 }}>My QR Code</Text>
+            </TouchableOpacity>
           </View>
 
           <Text style={styles.sectionHeader}>Activity</Text>

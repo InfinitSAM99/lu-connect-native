@@ -7,30 +7,18 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import VerifiedBadge from '../components/VerifiedBadge';
+import { PremiumAvatar } from '../components/PremiumBadge';
 
 const RECENT_KEY = 'lu:recent-searches';
 const TABS = ['people', 'posts', 'groups', 'events'];
 
 async function runSearch(tab: string, q: string, myId: string) {
   const term = (q || '').trim();
-  
-  // If the user hasn't typed anything, only return a default list for the People tab
   if (!term && tab !== 'people') return [];
-
   if (tab === 'people') {
-    let req = supabase
-      .from('profiles')
-      .select('id, full_name, avatar_url, faculty, course, is_verified, is_bot')
-      .neq('id', myId || '00000000-0000-0000-0000-000000000000')
-      .eq('is_bot', false)
-      .limit(50);
-      
-    if (term) {
-      req = req.ilike('full_name', `%${term}%`);
-    } else {
-      req = req.order('last_seen', { ascending: false, nullsFirst: false });
-    }
-
+    let req = supabase.from('profiles').select('id, full_name, avatar_url, faculty, course, is_verified, is_bot, subscription_tier').neq('id', myId || '00000000-0000-0000-0000-000000000000').eq('is_bot', false).limit(50);
+    if (term) req = req.ilike('full_name', `%${term}%`);
+    else req = req.order('last_seen', { ascending: false, nullsFirst: false });
     const { data } = await req;
     return data || [];
   }
@@ -49,36 +37,23 @@ async function runSearch(tab: string, q: string, myId: string) {
   return [];
 }
 
-
 export default function SearchScreen({ navigation }: any) {
   const { profile } = useAuth();
   const myId = profile?.id || null;
   const insets = useSafeAreaInsets();
-
   const [q, setQ] = useState('');
   const [tab, setTab] = useState('people');
   const [debounced, setDebounced] = useState('');
   const [recent, setRecent] = useState<any[]>([]);
 
-  useEffect(() => {
-    AsyncStorage.getItem(RECENT_KEY).then((raw) => {
-      if (raw) setRecent(JSON.parse(raw));
-    });
-  }, []);
-
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(q.trim()), 250);
-    return () => clearTimeout(t);
-  }, [q]);
+  useEffect(() => { AsyncStorage.getItem(RECENT_KEY).then((raw) => { if (raw) setRecent(JSON.parse(raw)); }); }, []);
+  useEffect(() => { const t = setTimeout(() => setDebounced(q.trim()), 250); return () => clearTimeout(t); }, [q]);
 
   const searchQuery = useQuery({
     queryKey: ['search', tab, debounced, myId],
     enabled: debounced.length > 0 || tab === 'people',
     staleTime: 30000,
-    queryFn: async () => {
-      if (debounced) saveRecent(debounced);
-      return runSearch(tab, debounced, myId);
-    },
+    queryFn: async () => { if (debounced) saveRecent(debounced); return runSearch(tab, debounced, myId); },
   });
 
   const results = searchQuery.data || [];
@@ -89,30 +64,18 @@ export default function SearchScreen({ navigation }: any) {
   const saveRecent = async (term: string) => {
     if (!term.trim()) return;
     const updated = [term, ...recent.filter((r) => r.q !== term)].slice(0, 5);
-    const recentItems = updated.map((r) => ({
-      tab: r.tab || 'people',
-      q: r.q,
-      name: r.q,
-    }));
+    const recentItems = updated.map((r) => ({ tab: r.tab || 'people', q: r.q, name: r.q }));
     setRecent(recentItems);
     await AsyncStorage.setItem(RECENT_KEY, JSON.stringify(recentItems));
   };
-
-  const applyRecent = (entry: any) => {
-    setTab(entry.tab);
-    setQ(entry.q);
-  };
-
-  const clearRecent = () => {
-    setRecent([]);
-    AsyncStorage.removeItem(RECENT_KEY);
-  };
+  const applyRecent = (entry: any) => { setTab(entry.tab); setQ(entry.q); };
+  const clearRecent = () => { setRecent([]); AsyncStorage.removeItem(RECENT_KEY); };
 
   const renderResult = ({ item: r }: any) => {
     if (tab === 'people') {
       return (
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('Profile', { id: r.id })}>
-          <Image source={{ uri: r.avatar_url || `https://api.dicebear.com/7.x/initials/svg?seed=${r.full_name}` }} style={{ width: 44, height: 44, borderRadius: 22 }} />
+        <TouchableOpacity style={styles.row} onPress={() => navigation.navigate('Profile', { id: r.id })}>
+          <PremiumAvatar avatarUrl={r.avatar_url} fullName={r.full_name} tier={r.subscription_tier || 'free'} size={48} />
           <View style={{ flex: 1, marginLeft: 12 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <Text style={{ fontWeight: '600', color: '#fff', fontSize: 15 }}>{r.full_name}</Text>
@@ -126,7 +89,7 @@ export default function SearchScreen({ navigation }: any) {
     if (tab === 'posts') {
       const thumb = r.post_media?.[0]?.media_url;
       return (
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('PostDetail', { id: r.id })}>
+        <TouchableOpacity style={styles.row} onPress={() => navigation.navigate('PostDetail', { id: r.id })}>
           <Image source={{ uri: r.profiles?.avatar_url || `https://api.dicebear.com/7.x/initials/svg?seed=${r.profiles?.full_name}` }} style={{ width: 36, height: 36, borderRadius: 18 }} />
           <View style={{ flex: 1, marginLeft: 10 }}>
             <Text style={{ fontSize: 12, color: '#6d7382' }}>{r.profiles?.full_name}</Text>
@@ -138,7 +101,7 @@ export default function SearchScreen({ navigation }: any) {
     }
     if (tab === 'groups') {
       return (
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('GroupDetail', { id: r.id })}>
+        <TouchableOpacity style={styles.row} onPress={() => navigation.navigate('GroupDetail', { id: r.id })}>
           <Image source={{ uri: r.cover_url || `https://api.dicebear.com/7.x/initials/svg?seed=${r.name}` }} style={{ width: 44, height: 44, borderRadius: 12 }} />
           <View style={{ flex: 1, marginLeft: 12 }}>
             <Text style={{ fontWeight: '600', color: '#fff', fontSize: 15 }}>{r.name}</Text>
@@ -149,12 +112,10 @@ export default function SearchScreen({ navigation }: any) {
     }
     if (tab === 'events') {
       return (
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('EventDetail', { id: r.id })}>
+        <TouchableOpacity style={styles.row} onPress={() => navigation.navigate('EventDetail', { id: r.id })}>
           <View style={{ flex: 1 }}>
             <Text style={{ fontWeight: '600', color: '#fff', fontSize: 15 }}>{r.title}</Text>
-            <Text style={{ fontSize: 12, color: '#6d7382', marginTop: 4 }}>
-              {r.starts_at ? new Date(r.starts_at).toLocaleString() : ''}{r.location ? ` · ${r.location}` : ''}
-            </Text>
+            <Text style={{ fontSize: 12, color: '#6d7382', marginTop: 4 }}>{r.starts_at ? new Date(r.starts_at).toLocaleString() : ''}{r.location ? ` · ${r.location}` : ''}</Text>
           </View>
         </TouchableOpacity>
       );
@@ -171,7 +132,6 @@ export default function SearchScreen({ navigation }: any) {
           {q ? <TouchableOpacity onPress={() => setQ('')}><Ionicons name="close" size={18} color="#fff" /></TouchableOpacity> : null}
         </View>
       </View>
-
       <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingBottom: 12 }}>
         {TABS.map((t) => {
           const active = tab === t;
@@ -184,7 +144,6 @@ export default function SearchScreen({ navigation }: any) {
           );
         })}
       </View>
-
       {showEmpty && recent.length > 0 && (
         <View style={{ paddingHorizontal: 16 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
@@ -200,7 +159,6 @@ export default function SearchScreen({ navigation }: any) {
           </View>
         </View>
       )}
-
       {showEmpty && recent.length === 0 && (
         <View style={{ alignItems: 'center', padding: 40 }}>
           <Ionicons name="search" size={40} color="#6d7382" />
@@ -208,21 +166,14 @@ export default function SearchScreen({ navigation }: any) {
           <Text style={{ fontSize: 13, color: '#6d7382', textAlign: 'center', marginTop: 6, paddingHorizontal: 40 }}>Find students, posts, groups and events.</Text>
         </View>
       )}
-
       {loading && debounced && <ActivityIndicator color="#ef4444" style={{ marginTop: 20 }} />}
-
       {showNoResults && (
         <View style={{ alignItems: 'center', padding: 40 }}>
           <Text style={{ fontSize: 16, fontWeight: '700', color: '#fff' }}>No results for "{debounced}"</Text>
         </View>
       )}
-
-            {results.length > 0 && (<FlatList
-          data={results}
-          keyExtractor={(item: any) => item.id}
-          renderItem={renderResult}
-          contentContainerStyle={{ paddingBottom: 100 + insets.bottom }}
-        />
+      {results.length > 0 && (
+        <FlatList data={results} keyExtractor={(item: any) => item.id} renderItem={renderResult} contentContainerStyle={{ paddingBottom: 100 + insets.bottom }} />
       )}
     </View>
   );
@@ -233,6 +184,6 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, color: '#fff', fontSize: 15 },
   tabBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: '#141414' },
   tabBtnActive: { backgroundColor: '#ef4444' },
-  card: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0a0a0a', padding: 12, marginHorizontal: 16, marginBottom: 8, borderRadius: 12, borderWidth: 1, borderColor: '#1f1f1f' },
+  row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#1f1f1f' },
   recentChip: { backgroundColor: '#141414', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16 },
 });

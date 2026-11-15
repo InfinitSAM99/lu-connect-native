@@ -10,6 +10,8 @@ import BottomSheet from '../components/BottomSheet';
 import TopBar from '../components/TopBar';
 import FastButton from '../components/FastButton';
 import AppButton from '../components/AppButton';
+import { formatDistanceToNow, format, isToday, isYesterday } from 'date-fns';
+import { FlashList } from '@shopify/flash-list';
 
 const ONLINE_WINDOW_MS = 60 * 1000;
 function isRecent(date: string | null) {
@@ -20,7 +22,7 @@ function isRecent(date: string | null) {
 async function loadConversations(profileId: string) {
   const { data: members, error } = await supabase
     .from('conversation_members')
-    .select('conversation_id, last_read_at, conversations(id, is_group, name, updated_at)')
+    .select('conversation_id, last_read_at, is_pinned, conversations(id, is_group, name, updated_at)')
     .eq('user_id', profileId);
   if (error) throw new Error(error.message);
 
@@ -62,6 +64,7 @@ async function loadConversations(profileId: string) {
     unreadByConv[m.conversation_id] = count;
   });
 
+  // 🔥 SORTING LOGIC: Pinned first, then by latest message time
   const result = members.map((m: any) => ({
     ...m.conversations,
     conversation_id: m.conversation_id,
@@ -70,13 +73,29 @@ async function loadConversations(profileId: string) {
     unreadCount: unreadByConv[m.conversation_id] || 0,
     isOnline: otherByConv[m.conversation_id] ? isRecent(otherByConv[m.conversation_id].last_seen) : false,
     group: groupByConv[m.conversation_id] || null,
+    isPinned: m.is_pinned || false, // 🔥 Added isPinned to the data
   })).sort((a: any, b: any) => {
+    if (a.isPinned && !b.isPinned) return -1;
+    if (!a.isPinned && b.isPinned) return 1;
     const aTime = new Date(a.last?.created_at || a.updated_at || 0).getTime();
     const bTime = new Date(b.last?.created_at || b.updated_at || 0).getTime();
     return bTime - aTime;
   });
 
   return result;
+}
+
+function formatChatTime(dateStr: string) {
+  if (!dateStr) return '';
+  const date = new Date(dateStr);
+  if (isToday(date)) {
+    const diffMins = Math.floor((Date.now() - date.getTime()) / 60000);
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    return format(date, 'HH:mm');
+  }
+  if (isYesterday(date)) return 'Yesterday';
+  return format(date, 'dd/MM/yyyy');
 }
 
 export default function MessagesScreen({ navigation }: any) {
@@ -120,7 +139,6 @@ export default function MessagesScreen({ navigation }: any) {
     }, [myId, queryClient])
   );
 
-  // Realtime listener for instant updates
   useEffect(() => {
     if (!myId) return;
     const ch = supabase.channel(`msgs-${myId}-${Date.now()}`)
@@ -139,7 +157,6 @@ export default function MessagesScreen({ navigation }: any) {
   }, [myId, queryClient]);
 
   const conversations = convsQuery.data || [];
-  // Override unread counts for chats we already opened in this session
   const conversationsWithReadStatus = conversations.map((c: any) => ({
     ...c,
     unreadCount: readChatsRef.current.has(c.conversation_id) ? 0 : c.unreadCount
@@ -153,15 +170,12 @@ export default function MessagesScreen({ navigation }: any) {
     : conversationsWithReadStatus;
 
   const openChat = (conv: any) => {
-    // 1. Instantly remove the badge locally in the cache
     queryClient.setQueryData(['convs', myId], (old: any) => {
       if (!old) return old;
-      return old.map((c: any) => 
+      return old.map((c: any) =>
         c.conversation_id === conv.conversation_id ? { ...c, unreadCount: 0 } : c
       );
     });
-    
-    // 2. Navigate
     readChatsRef.current.add(conv.conversation_id);
     navigation.navigate('Conversation', { id: conv.conversation_id, otherUser: conv.other, group: conv.group });
   };
@@ -221,7 +235,7 @@ export default function MessagesScreen({ navigation }: any) {
         </View>
       )}
 
-      <FlatList
+      <FlashList
         data={filtered}
         keyExtractor={(item: any) => item.conversation_id}
         contentContainerStyle={{ paddingBottom: 100 }}
@@ -235,7 +249,7 @@ export default function MessagesScreen({ navigation }: any) {
               onPress={() => openChat(item)}
               onLongPress={() => setMenuConv(item)}
               activeOpacity={0.7}
-              style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 }}
+              style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: item.isPinned ? 'rgba(239,68,68,0.05)' : 'transparent' }}
             >
               <View style={{ position: 'relative' }}>
                 <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: '#141414', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
@@ -245,15 +259,18 @@ export default function MessagesScreen({ navigation }: any) {
               </View>
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}>
-                  <Text style={{ color: '#fff', fontSize: 15, fontWeight: '600', flex: 1 }} numberOfLines={1}>{title}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                    <Text style={{ color: '#fff', fontSize: 15, fontWeight: '600' }} numberOfLines={1}>{title}</Text>
+                    {item.isPinned && <Ionicons name="pin" size={14} color="#ef4444" style={{ marginLeft: 6 }} />}
+                  </View>
                   {item.last?.created_at && (
                     <Text style={{ color: '#6d7382', fontSize: 11, marginLeft: 8 }}>
-                      {new Date(item.last.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {formatChatTime(item.last.created_at)}
                     </Text>
                   )}
                 </View>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ color: '#6d7382', fontSize: 13, flex: 1 }} numberOfLines={1}>{lastText}</Text>
+                  <Text style={{ color: item.isPinned ? '#a1a1aa' : '#6d7382', fontSize: 13, flex: 1 }} numberOfLines={1}>{lastText}</Text>
                   {item.unreadCount > 0 && (
                     <View style={{ backgroundColor: '#ef4444', borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2, marginLeft: 8 }}>
                       <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>{item.unreadCount}</Text>
@@ -275,7 +292,6 @@ export default function MessagesScreen({ navigation }: any) {
         }
       />
 
-      {/* Floating New Message Button */}
       <TouchableOpacity
         onPress={() => navigation.navigate('Search')}
         style={{

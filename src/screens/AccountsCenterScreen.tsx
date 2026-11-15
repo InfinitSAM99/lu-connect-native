@@ -5,114 +5,56 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import TopBar from '../components/TopBar';
 
-function SectionHeader({ children }) {
-  return <Text style={styles.sectionHeader}>{children}</Text>;
+function SectionHeader({ children, icon, color }: any) {
+  return (
+    <View style={styles.sectionHeaderWrap}>
+      <Ionicons name={icon} size={20} color={color} />
+      <Text style={[styles.sectionHeaderText, { color }]}>{children}</Text>
+      <View style={[styles.sectionLine, { backgroundColor: color }]} />
+    </View>
+  );
+}
+
+function PremiumRow({ onClick, iconName, title, color }: any) {
+  return (
+    <TouchableOpacity style={styles.row} onPress={onClick} activeOpacity={0.6}>
+      <View style={[styles.iconWrap, { backgroundColor: `${color}15` }]}>
+        <Ionicons name={iconName} size={20} color={color} />
+      </View>
+      <Text style={styles.rowTitle}>{title}</Text>
+      <Ionicons name="chevron-forward" size={18} color="#3f3f3f" />
+    </TouchableOpacity>
+  );
 }
 
 export default function AccountsCenterScreen({ navigation }: any) {
   const { profile } = useAuth();
   const insets = useSafeAreaInsets();
 
-
   if (!profile) return <View style={styles.center}><Text style={{ color: '#6d7382' }}>Loading…</Text></View>;
-
   const isPro = !!profile.professional_mode;
-
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
-      
-      {/* HERO TOP BAR WITH BACK BUTTON AND BIG ICON */}
-      <TopBar 
+      <TopBar
         hero
-        title="Accounts Center" 
+        title="Accounts Center"
         subtitle="Manage your account, security and professional tools"
-        showBack={true} 
-        onBack={() => navigation.goBack()} 
-        rightComponent={
-          <Ionicons name="person-circle-outline" size={48} color="#ef4444" style={{ marginTop: 4 }} />
-        }
+        showBack={true}
+        onBack={() => navigation.goBack()}
+        rightComponent={<Ionicons name="person-circle-outline" size={48} color="#ef4444" style={{ marginTop: 4 }} />}
       />
-
       <ScrollView contentContainerStyle={{ paddingBottom: 100 + insets.bottom }}>
-        <SectionHeader>Your account</SectionHeader>
-        
-        <TouchableOpacity style={styles.flatRow} onPress={() => navigation.navigate('ProfileEdit')}>
-          <Ionicons name="person-outline" size={22} color="#fff" style={{ width: 24 }} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.flatRowTitle}>Personal Details</Text>
-            <Text style={styles.flatRowSubtitle}>{profile.email} · {profile.is_verified ? 'Verified' : 'Not verified'}</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color="#6d7382" />
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.flatRow} onPress={() => navigation.navigate('ProfileEdit')}>
-          <Ionicons name="pencil" size={22} color="#fff" style={{ width: 24 }} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.flatRowTitle}>Profile Information</Text>
-            <Text style={styles.flatRowSubtitle}>Bio, faculty, course, year & more</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color="#6d7382" />
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.flatRow} onPress={() => navigation.navigate('ProfileEdit')}>
-          <Ionicons name="at" size={22} color="#fff" style={{ width: 24 }} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.flatRowTitle}>Username</Text>
-            <Text style={styles.flatRowSubtitle}>@{profile.username || 'not set'}</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color="#6d7382" />
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.flatRow} onPress={() => navigation.navigate('Settings', { openPassword: true })}>
-          <Ionicons name="lock-closed" size={22} color="#fff" style={{ width: 24 }} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.flatRowTitle}>Password & Security</Text>
-            <Text style={styles.flatRowSubtitle}>Update your login password</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color="#6d7382" />
-        </TouchableOpacity>
-
-        <SectionHeader>Professional</SectionHeader>
-
-        <TouchableOpacity style={styles.flatRow} onPress={() => navigation.navigate('ProfessionalMode')}>
-          <Ionicons name="rocket" size={22} color="#fff" style={{ width: 24 }} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.flatRowTitle}>Professional Mode</Text>
-            <Text style={styles.flatRowSubtitle}>{isPro ? 'Active — creator tools enabled' : 'Unlock followers, analytics & creator tools'}</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color="#6d7382" />
-        </TouchableOpacity>
-
-        {isPro && (
-          <TouchableOpacity style={styles.flatRow} onPress={() => navigation.navigate('ProfessionalDashboard')}>
-            <Ionicons name="star" size={22} color="#fff" style={{ width: 24 }} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.flatRowTitle}>Professional Dashboard</Text>
-              <Text style={styles.flatRowSubtitle}>Views, engagement & audience insights</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color="#6d7382" />
-          </TouchableOpacity>
-        )}
-
-        <TouchableOpacity style={styles.flatRow} onPress={() => navigation.navigate('GetVerified')}>
-          <Ionicons name="shield-checkmark" size={22} color="#fff" style={{ width: 24 }} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.flatRowTitle}>Get verified faster</Text>
-            <Text style={styles.flatRowSubtitle}>{profile.is_verified ? 'You are verified' : 'Priority review of your verification request'}</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color="#6d7382" />
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.flatRow} onPress={() => navigation.navigate('GetBoosted')}>
-          <Ionicons name="flame" size={22} color="#fff" style={{ width: 24 }} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.flatRowTitle}>Boost eligibility</Text>
-            <Text style={styles.flatRowSubtitle}>Reach more students with your posts</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color="#6d7382" />
-        </TouchableOpacity>
-
+        <SectionHeader icon="people-outline" color="#3b82f6">Your account</SectionHeader>
+        <PremiumRow onClick={() => navigation.navigate('ProfileEdit')} iconName="person-outline" title="Personal Details" color="#3b82f6" />
+        <PremiumRow onClick={() => navigation.navigate('ProfileEdit')} iconName="pencil" title="Profile Information" color="#eab308" />
+        <PremiumRow onClick={() => navigation.navigate('ProfileEdit')} iconName="at" title="Username" color="#ef4444" />
+        <PremiumRow onClick={() => navigation.navigate('Settings', { openPassword: true })} iconName="lock-closed" title="Password & Security" color="#22c55e" />
+        <SectionHeader icon="briefcase-outline" color="#a855f7">Professional</SectionHeader>
+        <PremiumRow onClick={() => navigation.navigate('ProfessionalMode')} iconName="rocket" title="Professional Mode" color="#a855f7" />
+        {isPro && <PremiumRow onClick={() => navigation.navigate('ProfessionalDashboard')} iconName="bar-chart" title="Professional Dashboard" color="#f59e0b" />}
+        <PremiumRow onClick={() => navigation.navigate('GetVerified')} iconName="shield-checkmark" title="Get verified faster" color="#06b6d4" />
+        <PremiumRow onClick={() => navigation.navigate('GetBoosted')} iconName="flame" title="Boost eligibility" color="#ec4899" />
       </ScrollView>
     </View>
   );
@@ -120,8 +62,10 @@ export default function AccountsCenterScreen({ navigation }: any) {
 
 const styles = StyleSheet.create({
   center: { flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' },
-  sectionHeader: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8, fontSize: 13, color: '#6d7382' },
-  flatRow: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingVertical: 14, paddingHorizontal: 16 },
-  flatRowTitle: { fontWeight: '500', fontSize: 15, color: '#fff' },
-  flatRowSubtitle: { fontSize: 13, color: '#6d7382', marginTop: 2 },
+  sectionHeaderWrap: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 24, paddingBottom: 12, gap: 10 },
+  sectionHeaderText: { fontSize: 15, fontWeight: '700' },
+  sectionLine: { flex: 1, height: 1, opacity: 0.3, marginLeft: 8 },
+  row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 16, paddingHorizontal: 20 },
+  iconWrap: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginRight: 16 },
+  rowTitle: { flex: 1, fontWeight: '600', fontSize: 15, color: '#fff' },
 });
