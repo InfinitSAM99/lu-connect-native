@@ -1,26 +1,29 @@
 import React, { useState, useEffect } from 'react';
-import PostCard from '../components/PostCard';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Image, ActivityIndicator, Alert, Modal, Dimensions, Animated, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import QRCode from 'react-native-qrcode-svg';
-import { Modal, Share } from 'react-native';
-import VerifiedBadge, { OfficialBadge } from '../components/VerifiedBadge';
+import VerifiedBadge from '../components/VerifiedBadge';
 import * as ImagePicker from 'expo-image-picker';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { PremiumAvatar, PremiumDiamond } from '../components/PremiumBadge';
+import UserQRCode from '../components/UserQRCode';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
-const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const GRID_GAP = 2;
+const NUM_COLUMNS = 3;
+const CELL_SIZE = Math.floor((SCREEN_W - (GRID_GAP * (NUM_COLUMNS + 1))) / NUM_COLUMNS);
+const REEL_CELL_HEIGHT = Math.floor(CELL_SIZE * 1.4);
 
-const formatBirthday = (month: number, day: number) => {
-  if (!month || !day) return null;
-  return `${MONTHS[month - 1]} ${day}`;
-};
+function formatViews(num: number) {
+  if (!num) return '0';
+  if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+  if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+  return String(num);
+}
 
-// --- RIGHT SIDE DRAWER COMPONENT ---
-function RightDrawer({ open, onClose, children }: { open: boolean, onClose: () => void, children: React.ReactNode }) {
+function RightDrawer({ open, onClose, children }: any) {
   const slideAnim = React.useRef(new Animated.Value(SCREEN_W)).current;
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
 
@@ -39,16 +42,12 @@ function RightDrawer({ open, onClose, children }: { open: boolean, onClose: () =
   }, [open]);
 
   if (!open) return null;
-
   return (
     <Modal visible={open} transparent animationType="none" onRequestClose={onClose}>
       <View style={{ flex: 1, flexDirection: 'row' }}>
-        {/* Backdrop */}
         <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.6)', opacity: fadeAnim }]}>
           <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         </Animated.View>
-
-        {/* Drawer */}
         <Animated.View style={[styles.drawerContainer, { transform: [{ translateX: slideAnim }] }]}>
           {children}
         </Animated.View>
@@ -58,21 +57,26 @@ function RightDrawer({ open, onClose, children }: { open: boolean, onClose: () =
 }
 
 async function loadProfileData(profileId: string) {
-  const [profileRes, postsRes, connectionsRes, followersRes] = await Promise.all([
+  const [profileRes, postsRes, reelsRes, connectionsRes, followersRes, followingRes, totalLikesRes] = await Promise.all([
     supabase.from('profiles').select('*, roles(name)').eq('id', profileId).single(),
     supabase.from('posts').select('*, post_media(*)').eq('author_id', profileId).eq('is_deleted', false).eq('is_anonymous', false).order('created_at', { ascending: false }).limit(20),
+    supabase.from('reels').select('*').eq('user_id', profileId).order('created_at', { ascending: false }).limit(20),
     supabase.from('connections').select('*', { count: 'exact', head: true }).or(`and(requester_id.eq.${profileId},status.eq.accepted),and(receiver_id.eq.${profileId},status.eq.accepted)`),
     supabase.from('follows').select('*', { count: 'exact', head: true }).eq('following_id', profileId),
+    supabase.from('follows').select('*', { count: 'exact', head: true }).eq('follower_id', profileId),
+    supabase.from('leaderboard_view').select('likes').eq('id', profileId).maybeSingle()
   ]);
 
   if (profileRes.error) throw new Error(profileRes.error.message);
-
   return {
     profile: profileRes.data,
     posts: postsRes.data || [],
+    reels: reelsRes.data || [],
     counts: {
       connections: connectionsRes.count || 0,
       realFollowers: followersRes.count || 0,
+      following: followingRes.count || 0,
+      totalLikes: totalLikesRes.data?.likes || 0,
     },
   };
 }
@@ -82,12 +86,12 @@ export default function ProfileScreen({ route, navigation }: any) {
   const { profile: me, reloadProfile } = useAuth();
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
-  
+
   const [uploading, setUploading] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
-  const [qrModalVisible, setQrModalVisible] = useState(false);
-  const [postsOpen, setPostsOpen] = useState(false);
-  const [viewerTarget, setViewerTarget] = useState<any>(null); 
+  const [viewerTarget, setViewerTarget] = useState<any>(null);
+  const [activeTab, setActiveTab] = useState<'posts' | 'reels'>('posts');
+  const [deleteTarget, setDeleteTarget] = useState<any>(null);
 
   const isMe = me?.id === targetId;
   const queryKey = ['profile', targetId];
@@ -95,12 +99,13 @@ export default function ProfileScreen({ route, navigation }: any) {
   const profileQuery = useQuery({
     queryKey,
     enabled: !!targetId,
-    staleTime: 60000,
+    staleTime: 0, refetchOnMount: 'always',
     queryFn: () => loadProfileData(targetId),
   });
 
   const profile = profileQuery.data?.profile || null;
-  const counts = profileQuery.data?.counts || { connections: 0, realFollowers: 0 };
+  const reels = profileQuery.data?.reels || [];
+  const counts = profileQuery.data?.counts || { connections: 0, realFollowers: 0, following: 0, totalLikes: 0 };
   const loading = profileQuery.isLoading;
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey });
@@ -108,39 +113,34 @@ export default function ProfileScreen({ route, navigation }: any) {
   const pickAndUpload = async (type: 'avatar' | 'cover') => {
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
     if (result.canceled) return;
-    
+
     setUploading(true);
     const file = result.assets[0];
-    const ext = file.uri.split('.').pop();
+    const ext = file.uri.split('.').pop() || 'jpg';
     const path = `${me.id}/${type}-${Date.now()}.${ext}`;
     const bucket = type === 'avatar' ? 'avatars' : 'covers';
 
-    const response = await fetch(file.uri);
-    const blob = await response.blob();
+    try {
+      const response = await fetch(file.uri);
+      const blob = await response.blob();
+      const { error: upErr } = await supabase.storage.from(bucket).upload(path, blob, { upsert: true, contentType: 'image/jpeg' });
+      if (upErr) throw upErr;
 
-    const { error: upErr } = await supabase.storage.from(bucket).upload(path, blob, { upsert: true, contentType: 'image/jpeg' });
-    if (upErr) {
-      Alert.alert('Upload failed', upErr.message);
-      setUploading(false);
-      return;
-    }
+      const { data: { publicUrl } } = supabase.storage.from(bucket).getPublicUrl(path);
+      const updateField = type === 'avatar' ? 'avatar_url' : 'cover_url';
+      const { error: dbErr } = await supabase.from('profiles').update({ [updateField]: publicUrl }).eq('id', me.id);
+      if (dbErr) throw dbErr;
 
-    const { data: { publicUrl } } = supabase.storage.from(bucket).getPublicUrl(path);
-    const updateField = type === 'avatar' ? 'avatar_url' : 'cover_url';
-    await supabase.from('profiles').update({ [updateField]: publicUrl }).eq('id', me.id);
-    
-    setUploading(false);
-    setViewerTarget(null);
-    await reloadProfile?.();
-    invalidate();
+      queryClient.setQueryData(queryKey, (old: any) => old ? { ...old, profile: { ...old.profile, [updateField]: publicUrl } } : old);
+      await reloadProfile?.();
+    } catch (e: any) { Alert.alert('Upload failed', e.message); }
+    finally { setUploading(false); setViewerTarget(null); }
   };
 
-  // ─── Follow / Connect state ─────────────────────────────────────
   const [following, setFollowing] = React.useState(false);
   const [connected, setConnected] = React.useState(false);
   const [connectLoading, setConnectLoading] = React.useState(false);
 
-  // Load current follow/connect status when viewing someone else's profile
   React.useEffect(() => {
     if (!me?.id || !profile?.id || me.id === profile.id) return;
     (async () => {
@@ -157,57 +157,40 @@ export default function ProfileScreen({ route, navigation }: any) {
     if (!me?.id || !profile?.id || connectLoading) return;
     setConnectLoading(true);
     try {
-      // Call create_dm RPC — it returns the conversation id or creates a new one
       const { data: convId, error } = await supabase.rpc('create_dm', { other_user_id: profile.id });
       if (error) throw error;
-      if (!convId) throw new Error('Could not create conversation');
       navigation.navigate('Conversation', { id: convId });
-    } catch (e: any) {
-      Alert.alert('Message error', e.message);
-    } finally {
-      setConnectLoading(false);
-    }
+    } catch (e: any) { Alert.alert('Error', e.message); }
+    finally { setConnectLoading(false); }
   };
 
   const toggleFollow = async () => {
     if (!me?.id || !profile?.id || connectLoading) return;
     setConnectLoading(true);
     try {
-      if (following) {
-        await supabase.from('follows').delete().eq('follower_id', me.id).eq('following_id', profile.id);
-        setFollowing(false);
-      } else {
-        await supabase.from('follows').insert({ follower_id: me.id, following_id: profile.id });
-        setFollowing(true);
-      }
-    } catch (e: any) {
-      Alert.alert('Error', e.message);
-    } finally {
-      setConnectLoading(false);
-    }
+      if (following) await supabase.from('follows').delete().eq('follower_id', me.id).eq('following_id', profile.id);
+      else await supabase.from('follows').insert({ follower_id: me.id, following_id: profile.id });
+      setFollowing(!following);
+      invalidate();
+    } catch (e: any) { Alert.alert('Error', e.message); }
+    finally { setConnectLoading(false); }
   };
 
-  const handleConnect = async () => {
-    if (!me?.id || !profile?.id || connected || connectLoading) return;
-    setConnectLoading(true);
+  const executeDelete = async () => {
+    if (!deleteTarget) return;
     try {
-      await supabase.from('connections').insert({ requester_id: me.id, receiver_id: profile.id, status: 'pending' });
-      setConnected(true);
-    } catch (e: any) {
-      Alert.alert('Error', e.message);
-    } finally {
-      setConnectLoading(false);
-    }
+      if (deleteTarget.type === 'post') await supabase.from('posts').delete().eq('id', deleteTarget.id);
+      else await supabase.from('reels').delete().eq('id', deleteTarget.id);
+      invalidate();
+    } catch (e: any) { Alert.alert('Delete Failed', e.message); }
+    finally { setDeleteTarget(null); }
   };
-  // ───────────────────────────────────────────────────────────────
 
   if (loading) return <View style={{ flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator color="#ef4444" /></View>;
   if (!profile) return <View style={{ flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff' }}>Profile not found</Text></View>;
 
   const avatarUrl = profile.avatar_url || `https://api.dicebear.com/7.x/initials/svg?seed=${profile.full_name}`;
   const totalFollowers = (counts.realFollowers || 0) + (profile.displayed_follower_count || 0);
-  const birthday = formatBirthday(profile.birthday_month, profile.birthday_day);
-
   const details = [
     profile.faculty && { icon: 'school-outline', label: 'Faculty', value: profile.faculty },
     profile.course && { icon: 'book-outline', label: 'Course', value: profile.course },
@@ -216,316 +199,161 @@ export default function ProfileScreen({ route, navigation }: any) {
     profile.hometown && { icon: 'home-outline', label: 'Hometown', value: profile.hometown },
     profile.residence && { icon: 'bed-outline', label: 'Residence', value: profile.residence },
     profile.relationship_status && { icon: 'heart-outline', label: 'Relationship', value: profile.relationship_status },
-    birthday && { icon: 'gift-outline', label: 'Birthday', value: birthday },
   ].filter(Boolean);
-
-  const interests = profile.interests ? profile.interests.split(',').map((s: string) => s.trim()).filter(Boolean) : [];
-  const currentImageUrl = viewerTarget === 'cover' ? profile.cover_url : avatarUrl;
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
       <ScrollView contentContainerStyle={{ paddingBottom: 120 + insets.bottom }}>
-        
-        {/* COVER */}
         <View style={styles.coverContainer}>
-          <TouchableOpacity activeOpacity={1} onPress={() => { if (isMe) pickAndUpload('cover'); else if (profile.cover_url) setViewerTarget('cover'); }}>
-            {profile.cover_url ? (
-              <Image source={{ uri: profile.cover_url }} style={styles.coverImage} />
-            ) : (
+          <TouchableOpacity activeOpacity={1} onPress={() => { if (profile.cover_url) setViewerTarget('cover'); else if (isMe) pickAndUpload('cover'); }}>
+            {profile.cover_url ? <Image source={{ uri: profile.cover_url }} style={styles.coverImage} /> : (
               <View style={[styles.coverImage, { backgroundColor: '#0a0a0a', alignItems: 'center', justifyContent: 'center' }]}>
-              {isMe && (
-                <View style={{ alignItems: 'center', gap: 6 }}>
-                  <Ionicons name="camera" size={28} color="#6d7382" />
-                  <Text style={{ color: '#6d7382', fontSize: 12, fontWeight: '600' }}>Tap to add cover</Text>
-                </View>
-              )}
-            </View>
+                {isMe && <View style={{ alignItems: 'center', gap: 6 }}><Ionicons name="camera" size={28} color="#6d7382" /><Text style={{ color: '#6d7382', fontSize: 12, fontWeight: '600' }}>Tap to add cover</Text></View>}
+              </View>
             )}
           </TouchableOpacity>
-          
-          {isMe && profile.cover_url && (
-            <TouchableOpacity
-              onPress={() => pickAndUpload('cover')}
-              style={{
-                position: 'absolute',
-                bottom: 12,
-                right: 12,
-                backgroundColor: 'rgba(0,0,0,0.7)',
-                borderRadius: 20,
-                paddingHorizontal: 12,
-                paddingVertical: 6,
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 6,
-                borderWidth: 1,
-                borderColor: 'rgba(255,255,255,0.2)',
-              }}
-            >
-              <Ionicons name="camera" size={14} color="#fff" />
-              <Text style={{ color: '#fff', fontSize: 11, fontWeight: '600' }}>Change Cover</Text>
-            </TouchableOpacity>
-          )}
-
-          <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-            <Ionicons name="chevron-back" size={26} color="#fff" />
-          </TouchableOpacity>
+          <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}><Ionicons name="chevron-back" size={26} color="#fff" /></TouchableOpacity>
         </View>
 
-        {/* AVATAR + NAME */}
         <View style={styles.avatarSection}>
-          <TouchableOpacity activeOpacity={0.9} onPress={() => setViewerTarget('avatar')} style={{ position: 'relative' }}>
-            <TouchableOpacity onPress={() => isMe && pickAndUpload('avatar')} activeOpacity={0.85}>
-              <Image source={{ uri: avatarUrl }} style={styles.avatar} />
-            </TouchableOpacity>
+          <TouchableOpacity onPress={() => setViewerTarget('avatar')}>
+            <PremiumAvatar avatarUrl={avatarUrl} fullName={profile.full_name} tier={profile.subscription_tier || 'free'} size={110} />
           </TouchableOpacity>
-          
           <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 14, gap: 6 }}>
             <Text style={styles.name}>{profile.full_name}</Text>
             {profile.is_verified && <VerifiedBadge size={20} />}
-            {profile.is_broadcast_only && <Text style={{ fontSize: 16, marginLeft: 4 }}>📢</Text>}
-            
-            {profile.is_broadcast_only && <OfficialBadge size={14} />}
+            <PremiumDiamond tier={profile.subscription_tier || 'free'} />
+          </View>
+
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16, paddingRight: 40 }}>
+            <View style={{ alignItems: 'center' }}><Text style={{ color: '#fff', fontSize: 22, fontWeight: '900' }}>{counts.following}</Text><Text style={{ color: '#a1a1aa', fontSize: 13, fontWeight: '600', marginTop: 2 }}>Following</Text></View>
+            <View style={{ alignItems: 'center' }}><Text style={{ color: '#fff', fontSize: 22, fontWeight: '900' }}>{totalFollowers}</Text><Text style={{ color: '#a1a1aa', fontSize: 13, fontWeight: '600', marginTop: 2 }}>Followers</Text></View>
+            <View style={{ alignItems: 'center' }}><Text style={{ color: '#fff', fontSize: 22, fontWeight: '900' }}>{formatViews(counts.totalLikes)}</Text><Text style={{ color: '#a1a1aa', fontSize: 13, fontWeight: '600', marginTop: 2 }}>Likes</Text></View>
           </View>
 
           {!isMe && (
-            <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
-              <TouchableOpacity 
-                style={[styles.pillPrimary, following && { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#ef4444' }]}
-                onPress={toggleFollow}
-              >
-                <Text style={[styles.pillPrimaryText, following && { color: '#ef4444' }]}>
-                  {following ? 'Following' : 'Follow'}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.pillGhost, connected && { backgroundColor: '#141414', borderColor: '#6d7382' }]}
-                onPress={handleConnect}
-                disabled={connected || connectLoading}
-              >
-                <Text style={[styles.pillGhostText, connected && { color: '#6d7382' }]}>
-                  {connectLoading ? 'Sending...' : connected ? 'Requested' : 'Connect'}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.pillGhost, { backgroundColor: '#141414', borderColor: '#1f1f1f' }]}
-                onPress={openConversation}
-                disabled={connectLoading}
-              >
-                <Text style={[styles.pillGhostText, { color: '#fff' }]}>
-                  {connectLoading ? '...' : 'Message'}
-                </Text>
-              </TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 16 }}>
+              <TouchableOpacity style={[styles.pillPrimary, following && { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#ef4444' }]} onPress={toggleFollow}><Text style={[styles.pillPrimaryText, following && { color: '#ef4444' }]}>{following ? 'Following' : 'Follow'}</Text></TouchableOpacity>
+              <TouchableOpacity style={[styles.pillGhost, connected && { backgroundColor: '#141414', borderColor: '#6d7382' }]} onPress={() => Alert.alert('Connect', 'Connect logic')}><Text style={[styles.pillGhostText, connected && { color: '#6d7382' }]}>{connectLoading ? 'Sending...' : connected ? 'Requested' : 'Connect'}</Text></TouchableOpacity>
+              <TouchableOpacity style={[styles.pillGhost, { backgroundColor: '#141414', borderColor: '#1f1f1f' }]} onPress={openConversation} disabled={connectLoading}><Text style={[styles.pillGhostText, { color: '#fff' }]}>Message</Text></TouchableOpacity>
             </View>
           )}
 
-          <View style={styles.statsRow}>
-            <Text style={styles.statText}>{counts.connections} connections</Text>
-            <Text style={styles.statDot}>·</Text>
-            <Text style={styles.statText}>{totalFollowers.toLocaleString()} followers</Text>
-          </View>
-
           <TouchableOpacity style={styles.moreBtn} onPress={() => setAboutOpen(true)}>
-            <Text style={{ color: '#6d7382', fontSize: 14, fontWeight: '500' }}>More info</Text>
-            <Ionicons name="chevron-forward" size={16} color="#6d7382" />
+            <Text style={{ color: '#6d7382', fontSize: 14, fontWeight: '500' }}>More info</Text><Ionicons name="chevron-forward" size={16} color="#6d7382" />
           </TouchableOpacity>
         </View>
 
-        {/* POSTS PLACEHOLDER */}
-        <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
-          <TouchableOpacity style={styles.postsBtn} onPress={() => setPostsOpen(v => !v)}>
-            <Text style={{ color: '#fff', fontSize: 15, fontWeight: '600' }}>Posts ({profileQuery.data?.posts.length || 0})</Text>
-            <Ionicons name={postsOpen ? "chevron-up" : "chevron-down"} size={18} color="#fff" />
-          </TouchableOpacity>
+        <View style={{ flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#1f1f1f', marginTop: 16 }}>
+          <TouchableOpacity style={[{ flex: 1, alignItems: 'center', paddingVertical: 14 }, activeTab === 'posts' && { borderBottomWidth: 2, borderBottomColor: '#ef4444' }]} onPress={() => setActiveTab('posts')}><Text style={{ color: activeTab === 'posts' ? '#fff' : '#6d7382', fontSize: 14, fontWeight: '700' }}>Posts ({profileQuery.data?.posts.length || 0})</Text></TouchableOpacity>
+          <TouchableOpacity style={[{ flex: 1, alignItems: 'center', paddingVertical: 14 }, activeTab === 'reels' && { borderBottomWidth: 2, borderBottomColor: '#ef4444' }]} onPress={() => setActiveTab('reels')}><Text style={{ color: activeTab === 'reels' ? '#fff' : '#6d7382', fontSize: 14, fontWeight: '700' }}>Reels ({reels.length})</Text></TouchableOpacity>
         </View>
 
-        {postsOpen && profileQuery.data?.posts?.length > 0 && (
-          <View style={{ marginTop: 12 }}>
-            {profileQuery.data.posts.map((p: any) => (
-              <PostCard
-                key={p.id}
-                post={{ ...p, profiles: profile }}
-                onUpdate={(postId, updates) => {
-                  queryClient.setQueryData(queryKey, (old: any) => old ? { ...old, posts: old.posts.map((x: any) => x.id === postId ? { ...x, ...updates } : x) } : old);
-                }}
-                onDelete={(postId) => {
-                  queryClient.setQueryData(queryKey, (old: any) => old ? { ...old, posts: old.posts.filter((x: any) => x.id !== postId) } : old);
-                }}
-                onCommentOpen={() => {}}
-                onMenu={() => {}}
-              />
+        {activeTab === 'posts' && (profileQuery.data?.posts?.length || 0) > 0 && (
+          <View style={styles.grid}>
+            {profileQuery.data!.posts.map((p: any) => (
+              <TouchableOpacity key={p.id} style={styles.gridCell} onPress={() => navigation.navigate('PostViewerScreen', { postId: p.id })} onLongPress={() => isMe && setDeleteTarget({ type: 'post', id: p.id })}>
+                {p.post_media?.length > 0 ? <Image source={{ uri: p.post_media[0].media_url }} style={styles.gridImage} resizeMode="cover" /> : <View style={[styles.gridImage, { backgroundColor: '#1f1f1f', justifyContent: 'center', alignItems: 'center' }]}><Ionicons name="text" size={24} color="#6d7382" /></View>}
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
+        {activeTab === 'reels' && reels.length > 0 && (
+          <View style={styles.grid}>
+            {reels.map((r: any) => (
+              <TouchableOpacity key={r.id} style={styles.reelCell} onPress={() => navigation.navigate('Video')} onLongPress={() => isMe && setDeleteTarget({ type: 'reel', id: r.id })}>
+                <View style={styles.reelCellInner}>
+                  {r.thumbnail_url ? <Image source={{ uri: r.thumbnail_url }} style={styles.gridImage} resizeMode="cover" /> : <View style={[styles.gridImage, { backgroundColor: '#1f1f1f', justifyContent: 'center', alignItems: 'center' }]}><Ionicons name="play-circle" size={32} color="#6d7382" /></View>}
+                  <View style={styles.reelOverlay}><Ionicons name="play" size={12} color="#fff" /><Text style={styles.reelOverlayText}>{formatViews(r.views_count)}</Text></View>
+                </View>
+              </TouchableOpacity>
             ))}
           </View>
         )}
       </ScrollView>
 
-      {/* RIGHT DRAWER FOR ABOUT */}
       <RightDrawer open={aboutOpen} onClose={() => setAboutOpen(false)}>
         <View style={styles.drawerHeader}>
-          <TouchableOpacity onPress={() => setAboutOpen(false)} style={{ padding: 4 }}>
-            <Ionicons name="close" size={26} color="#fff" />
-          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setAboutOpen(false)} style={{ padding: 4 }}><Ionicons name="close" size={26} color="#fff" /></TouchableOpacity>
           <Text style={{ fontSize: 18, fontWeight: '700', color: '#fff', flex: 1, textAlign: 'center', marginRight: 26 }}>About</Text>
         </View>
-
         <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
           <View style={{ alignItems: 'center', paddingTop: 12, paddingBottom: 20 }}>
-            {/* REPLACED ICON WITH ACTUAL AVATAR */}
-            <Image source={{ uri: avatarUrl }} style={styles.drawerAvatar} />
+            <PremiumAvatar avatarUrl={avatarUrl} fullName={profile.full_name} tier={profile.subscription_tier || 'free'} size={80} />
             <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12, gap: 6 }}>
               <Text style={{ fontWeight: '700', fontSize: 18, color: '#fff' }}>{profile.full_name}</Text>
               {profile.is_verified && <VerifiedBadge size={16} />}
-                
             </View>
-            <Text style={{ fontSize: 13, color: '#6d7382', marginTop: 4, textAlign: 'center', paddingHorizontal: 20 }}>Personal details shared on this profile</Text>
-
-            <TouchableOpacity
-              onPress={() => setQrModalVisible(true)}
-              style={{ marginTop: 16, backgroundColor: 'rgba(239,68,68,0.15)', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 24, flexDirection: 'row', alignItems: 'center', gap: 8 }}
-            >
-              <Ionicons name="qr-code" size={20} color="#ef4444" />
-              <Text style={{ color: '#ef4444', fontWeight: '700', fontSize: 14 }}>My QR Code</Text>
-            </TouchableOpacity>
           </View>
-
-          <Text style={styles.sectionHeader}>Activity</Text>
+          <Text style={styles.sectionHeader}>MY QR CODE</Text>
+          <View style={{ alignItems: 'center', paddingVertical: 10, marginBottom: 10 }}>
+            <UserQRCode userId={profile.id} fullName={profile.full_name} avatarUrl={avatarUrl} />
+          </View>
+          <Text style={styles.sectionHeader}>Details</Text>
           <View style={{ paddingHorizontal: 20 }}>
-            <InfoRow icon="people-outline" label="Connections" value={String(counts.connections)} />
-            <InfoRow icon="heart-outline" label="Followers" value={totalFollowers.toLocaleString()} last />
+            {details.map((d: any, i: number) => (
+              <View key={d.label} style={[styles.infoRow, i !== details.length - 1 && { borderBottomWidth: 1, borderBottomColor: '#1f1f1f' }]}>
+                <Ionicons name={d.icon} size={20} color="#fff" style={{ width: 24 }} />
+                <Text style={{ flex: 1, fontSize: 15, color: '#fff', marginLeft: 14 }}>{d.label}</Text>
+                <Text style={{ fontSize: 14, color: '#6d7382' }}>{d.value}</Text>
+              </View>
+            ))}
           </View>
-
-          {details.length > 0 && (
-            <>
-              <Text style={styles.sectionHeader}>Details</Text>
-              <View style={{ paddingHorizontal: 20 }}>
-                {details.map((d: any, i: number) => (
-                  <InfoRow key={d.label} icon={d.icon} label={d.label} value={d.value} last={i === details.length - 1} />
-                ))}
-              </View>
-            </>
-          )}
-
-          {interests.length > 0 && (
-            <>
-              <Text style={styles.sectionHeader}>Interests</Text>
-              <View style={{ paddingHorizontal: 20, flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingBottom: 20 }}>
-                {interests.map((tag: string) => (
-                  <View key={tag} style={styles.tagPill}>
-                    <Text style={{ color: '#fff', fontSize: 12, fontWeight: '500' }}>{tag}</Text>
-                  </View>
-                ))}
-              </View>
-            </>
-          )}
         </ScrollView>
       </RightDrawer>
 
-      {/* FULL SCREEN IMAGE VIEWER */}
       <Modal visible={!!viewerTarget} transparent animationType="fade" onRequestClose={() => setViewerTarget(null)}>
-        <View style={styles.viewerContainer}>
-          
-          <TouchableOpacity style={styles.viewerCloseBtn} onPress={() => setViewerTarget(null)}>
-            <Ionicons name="close" size={28} color="#fff" />
-          </TouchableOpacity>
-
-          {currentImageUrl && (
-            <Image source={{ uri: currentImageUrl }} style={styles.viewerImage} resizeMode="contain" />
-          )}
-
-          <View style={styles.viewerFooter}>
-            {isMe ? (
-              <TouchableOpacity style={styles.viewerPrimaryBtn} onPress={() => pickAndUpload(viewerTarget)} disabled={uploading}>
-                <Ionicons name="camera" size={20} color="#fff" />
-                <Text style={styles.viewerPrimaryText}>{uploading ? 'Uploading...' : 'Change Photo'}</Text>
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity style={styles.viewerPrimaryBtn} onPress={() => Alert.alert('Download', 'Download requires a native APK build and is not available in Expo Go.')}>
-                <Ionicons name="download" size={20} color="#fff" />
-                <Text style={styles.viewerPrimaryText}>Download</Text>
-              </TouchableOpacity>
-            )}
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.95)' }}>
+          <View style={{ position: 'absolute', top: 50, left: 20, right: 20, flexDirection: 'row', justifyContent: 'space-between', zIndex: 10 }}>
+            <TouchableOpacity onPress={() => setViewerTarget(null)} style={{ padding: 8 }}><Ionicons name="close" size={30} color="#fff" /></TouchableOpacity>
           </View>
+          <Image source={{ uri: viewerTarget === 'cover' ? profile.cover_url : avatarUrl }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+          {isMe && (
+            <View style={{ position: 'absolute', bottom: 60, left: 0, right: 0, alignItems: 'center' }}>
+              <TouchableOpacity style={{ backgroundColor: '#ef4444', paddingHorizontal: 24, paddingVertical: 14, borderRadius: 30, flexDirection: 'row', alignItems: 'center', gap: 8 }} onPress={() => pickAndUpload(viewerTarget === 'cover' ? 'cover' : 'avatar')}>
+                <Ionicons name="camera" size={20} color="#fff" /><Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>Change Photo</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
       </Modal>
 
-    </View>
-  );
-}
-
-function InfoRow({ icon, label, value, last }: any) {
-  return (
-    <View style={[styles.infoRow, !last && { borderBottomWidth: 1, borderBottomColor: '#1f1f1f' }]}>
-      <Ionicons name={icon} size={20} color="#fff" style={{ width: 24 }} />
-      <Text style={{ flex: 1, fontSize: 15, color: '#fff', marginLeft: 14 }}>{label}</Text>
-      <Text style={{ fontSize: 14, color: '#6d7382' }}>{value}</Text>
+      <Modal visible={!!deleteTarget} transparent animationType="fade" onRequestClose={() => setDeleteTarget(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center' }}>
+          <View style={{ width: '85%', backgroundColor: '#141414', borderRadius: 24, padding: 24, alignItems: 'center', borderWidth: 1, borderColor: '#2a2a2a' }}>
+            <Text style={{ color: '#fff', fontSize: 22, fontWeight: '800', marginBottom: 8 }}>Delete {deleteTarget?.type === 'post' ? 'Post' : 'Reel'}?</Text>
+            <Text style={{ color: '#a1a1aa', fontSize: 14, textAlign: 'center', marginBottom: 24 }}>This action cannot be undone.</Text>
+            <View style={{ flexDirection: 'row', gap: 12, width: '100%' }}>
+              <TouchableOpacity style={{ flex: 1, backgroundColor: '#1f1f1f', paddingVertical: 14, borderRadius: 14, alignItems: 'center' }} onPress={() => setDeleteTarget(null)}><Text style={{ color: '#fff', fontWeight: '600' }}>Cancel</Text></TouchableOpacity>
+              <TouchableOpacity style={{ flex: 1, backgroundColor: '#ef4444', paddingVertical: 14, borderRadius: 14, alignItems: 'center' }} onPress={executeDelete}><Text style={{ color: '#fff', fontWeight: '700' }}>Delete</Text></TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  pillBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, borderWidth: 1 },
-  pillBtnFollow: { backgroundColor: '#ef4444', borderColor: '#ef4444' },
-  pillBtnConnect: { backgroundColor: 'transparent', borderColor: '#ef4444' },
-  pillBtnFollowing: { backgroundColor: 'transparent', borderColor: '#ef4444' },
-  pillBtnText: { fontSize: 13, fontWeight: '700' },
-  coverContainer: { height: 200, position: 'relative' },
-  coverImage: { width: '100%', height: '100%' },
+  coverContainer: { height: 200, position: 'relative' }, coverImage: { width: '100%', height: '100%' },
   backBtn: { position: 'absolute', top: 40, left: 16, width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' },
   avatarSection: { paddingHorizontal: 16, marginTop: -50 },
-  avatar: { width: 110, height: 110, borderRadius: 55, borderWidth: 4, borderColor: '#000' },
   name: { fontSize: 22, fontWeight: '700', color: '#fff' },
-  officialBadge: { backgroundColor: 'rgba(239,68,68,0.15)', color: '#ef4444', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, fontSize: 10, fontWeight: '700', marginLeft: 6 },
   pillPrimary: { backgroundColor: '#ef4444', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 },
   pillPrimaryText: { color: '#fff', fontSize: 14, fontWeight: '600' },
   pillGhost: { borderWidth: 1.5, borderColor: '#1f1f1f', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 },
   pillGhostText: { color: '#fff', fontSize: 14, fontWeight: '600' },
-  statsRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
-  statText: { fontSize: 13, color: '#6d7382' },
-  statDot: { color: '#6d7382' },
   moreBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12, paddingVertical: 4 },
-  postsBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#ef4444', borderRadius: 12, padding: 16 },
   sectionHeader: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8, fontSize: 13, color: '#6d7382', fontWeight: '500' },
   infoRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14 },
-  tagPill: { backgroundColor: '#141414', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14 },
-  
-  // Right Drawer Styles (Red line REMOVED)
-  drawerContainer: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    width: SCREEN_W * 0.80,
-    backgroundColor: '#0a0a0a',
-    borderTopLeftRadius: 20,
-    borderBottomLeftRadius: 20,
-    // borderLeftWidth: 2,  <--- REMOVED
-    // borderLeftColor: '#ef4444', <--- REMOVED
-    shadowColor: '#000',
-    shadowOffset: { width: -4, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 10,
-    elevation: 20,
-  },
-  drawerHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    paddingTop: 50,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1f1f1f',
-  },
-  drawerAvatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    borderWidth: 3,
-    borderColor: '#ef4444',
-  },
-  
-  // Fullscreen Viewer
-  viewerContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', alignItems: 'center' },
-  viewerCloseBtn: { position: 'absolute', top: 50, right: 20, zIndex: 10, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center' },
-  viewerImage: { width: SCREEN_W, height: SCREEN_H * 0.7 },
-  viewerFooter: { position: 'absolute', bottom: 60, left: 0, right: 0, alignItems: 'center' },
-  viewerPrimaryBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#ef4444', paddingHorizontal: 24, paddingVertical: 14, borderRadius: 30 },
-  viewerPrimaryText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: GRID_GAP, paddingTop: GRID_GAP, gap: GRID_GAP },
+  gridCell: { width: CELL_SIZE, height: CELL_SIZE, borderRadius: 4, overflow: 'hidden' },
+  gridImage: { width: '100%', height: '100%', borderRadius: 4 },
+  reelCell: { width: CELL_SIZE, height: REEL_CELL_HEIGHT, borderRadius: 4, overflow: 'hidden' },
+  reelCellInner: { width: '100%', height: '100%', backgroundColor: '#1f1f1f', position: 'relative' },
+  reelOverlay: { position: 'absolute', bottom: 6, left: 6, flexDirection: 'row', alignItems: 'center', gap: 4 },
+  reelOverlayText: { color: '#fff', fontSize: 11, fontWeight: '700', textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 3 },
+  drawerContainer: { position: 'absolute', top: 0, right: 0, bottom: 0, width: SCREEN_W * 0.80, backgroundColor: '#0a0a0a', borderTopLeftRadius: 20, borderBottomLeftRadius: 20, shadowColor: '#000', shadowOffset: { width: -4, height: 0 }, shadowOpacity: 0.5, shadowRadius: 10, elevation: 20 },
+  drawerHeader: { flexDirection: 'row', alignItems: 'center', padding: 16, paddingTop: 50, borderBottomWidth: 1, borderBottomColor: '#1f1f1f' },
 });

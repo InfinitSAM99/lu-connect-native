@@ -34,8 +34,15 @@ export default function StoryComposerScreen({ route, navigation }: any) {
         const ext = selectedImage.split('.').pop();
         const path = `${profile?.id}/story-${Date.now()}.${ext}`;
         const blob = await (await fetch(selectedImage)).blob();
+        
         const { error: uploadError } = await supabase.storage.from('stories').upload(path, blob, { contentType: 'image/jpeg' });
-        if (uploadError) throw uploadError;
+        if (uploadError) {
+          Alert.alert('Upload Failed', `Storage Error: ${uploadError.message}\n\nDid you create the 'stories' bucket?`);
+          setUploading(false);
+          if (setIsUploadingStory) setIsUploadingStory(false);
+          return;
+        }
+        
         const { data: { publicUrl } } = supabase.storage.from('stories').getPublicUrl(path);
         media_url = publicUrl;
       }
@@ -97,8 +104,8 @@ export default function StoryComposerScreen({ route, navigation }: any) {
           {uploading ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontWeight: '700' }}>Your story</Text>}
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.iconBtn}>
-          <Ionicons name="arrow-forward" size={24} color="#fff" />
+        <TouchableOpacity onPress={publishStory} disabled={uploading} style={styles.iconBtn}>
+          {uploading ? <ActivityIndicator color="#fff" /> : <Ionicons name="arrow-forward" size={24} color="#fff" />}
         </TouchableOpacity>
       </View>
     </View>

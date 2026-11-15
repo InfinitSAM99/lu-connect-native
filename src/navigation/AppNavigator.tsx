@@ -45,6 +45,9 @@ import ProfileScreen from '../screens/ProfileScreen';
 import ProfileEditScreen from '../screens/ProfileEditScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import SecurityScreen from '../screens/SecurityScreen';
+import LoginActivityScreen from '../screens/LoginActivityScreen';
+import PrivacyScreen from '../screens/PrivacyScreen';
+import BiometricSettingsScreen from '../screens/BiometricSettingsScreen';
 import SetPatternScreen from '../screens/SetPatternScreen';
 import SecurityQuestionsScreen from '../screens/SecurityQuestionsScreen';
 
@@ -72,6 +75,7 @@ import AccountsCenterScreen from '../screens/AccountsCenterScreen';
 import PreferencesScreen from '../screens/PreferencesScreen';
 import ProfessionalModeScreen from '../screens/ProfessionalModeScreen';
 import ProfessionalDashboardScreen from '../screens/ProfessionalDashboardScreen';
+import SubscriptionScreen from '../screens/SubscriptionScreen';
 import AnnouncementsScreen from '../screens/AnnouncementsScreen';
 import PostDetailScreen from '../screens/PostDetailScreen';
 
@@ -247,6 +251,9 @@ export default function AppNavigator() {
             {/* Settings & Details */}
             <Stack.Screen name="Settings" component={withLayout(SettingsScreen)} />
             <Stack.Screen name="Security" component={withLayout(SecurityScreen)} />
+            <Stack.Screen name="LoginActivity" component={LoginActivityScreen} />
+            <Stack.Screen name="Privacy" component={PrivacyScreen} />
+            <Stack.Screen name="BiometricSettingsScreen" component={BiometricSettingsScreen} />
             <Stack.Screen name="CheckAccountId" component={CheckAccountIdScreen} />
             <Stack.Screen name="SetPattern" component={SetPatternScreen} />
             <Stack.Screen name="SecurityQuestions" component={SecurityQuestionsScreen} />
@@ -258,6 +265,7 @@ export default function AppNavigator() {
             <Stack.Screen name="ProfileEdit" component={ProfileEditScreen} />
             <Stack.Screen name="ProfessionalMode" component={withLayout(ProfessionalModeScreen)} />
             <Stack.Screen name="ProfessionalDashboard" component={withLayout(ProfessionalDashboardScreen)} />
+            <Stack.Screen name="SubscriptionScreen" component={SubscriptionScreen} options={{ presentation: 'modal' }} />
             <Stack.Screen name="GetVerified" component={withLayout(GetVerifiedScreen)} />
             <Stack.Screen name="GetBoosted" component={withLayout(GetBoostedScreen)} />
 

@@ -63,6 +63,7 @@ export default function SettingsScreen({ navigation }: any) {
         <View style={styles.cardGroup}>
           <SettingRow onClick={() => navigation.navigate('AccountsCenter')} iconName="person-circle-outline" title="Accounts Center" subtitle="Password, personal details" />
           <SettingRow onClick={() => navigation.navigate('Security')} iconName="shield-checkmark-outline" title="Security Hub" subtitle="Pattern, questions, password" />
+          <SettingRow onClick={() => navigation.navigate('Privacy')} iconName="lock-closed-outline" title="Privacy & App Lock" subtitle="Biometrics, last seen, read receipts" />
           <SettingRow onClick={() => navigation.navigate('LoginActivity')} iconName="desktop-outline" title="Login Activity" subtitle="Where you're logged in" />
           <SettingRow onClick={() => navigation.navigate('BlockedUsers')} iconName="ban-outline" title="Blocked Users" subtitle="Manage blocked accounts" isLast />
         </View>

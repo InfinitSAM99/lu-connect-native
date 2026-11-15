@@ -1,32 +1,31 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, Dimensions, Image, TouchableOpacity } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import TopBar from '../components/TopBar';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../context/AuthContext';
-import { useQuery } from '@tanstack/react-query';
-import { supabase } from '../lib/supabase';
-
-const { width: SCREEN_W } = Dimensions.get('window');
+import { PremiumAvatar, PremiumDiamond } from '../components/PremiumBadge';
+import TopBar from '../components/TopBar';
 
 const SECTIONS = [
+  {
+    title: 'Social',
+    items: [
+      { id: 'Connections', label: 'Connections', icon: 'people', color: '#3b82f6', desc: 'See your friends & network' },
+      { id: 'Messages', label: 'Messages', icon: 'chatbubbles', color: '#22c55e', desc: 'Your private conversations' },
+      { id: 'Events', label: 'Events', icon: 'calendar', color: '#f59e0b', desc: 'Campus happenings' },
+      { id: 'Groups', label: 'Groups', icon: 'people-circle', color: '#8b5cf6', desc: 'Communities & societies' },
+      { id: 'Confessions', label: 'Confessions', icon: 'eye-off', color: '#ec4899', desc: 'Anonymous campus secrets' },
+    ],
+  },
   {
     title: 'Discover',
     items: [
       { id: 'Search', label: 'Search', icon: 'search', color: '#3b82f6', desc: 'Find people & posts' },
-      { id: 'AcademicHub', label: 'Academic Hub', icon: 'school', color: '#eab308', desc: 'Past papers, notes & more' },
-      { id: 'AIAssistant', label: 'AI Assistant', icon: 'sparkles', color: '#a855f7', desc: 'Ask anything' },
+      { id: 'AcademicHub', label: 'Academic Hub', icon: 'school', color: '#f59e0b', desc: 'Past papers, notes & more' },
+      { id: 'AIAssistant', label: 'AI Assistant', icon: 'sparkles', color: '#8b5cf6', desc: 'Ask anything' },
       { id: 'Marketplace', label: 'Marketplace', icon: 'cart', color: '#06b6d4', desc: 'Buy & sell on campus' },
-      { id: 'Video', label: 'Reels', icon: 'videocam', color: '#f43f5e', desc: 'Watch & discover' },
-    ],
-  },
-  {
-    title: 'Social',
-    items: [
-      { id: 'Events', label: 'Events', icon: 'calendar', color: '#8b5cf6', desc: 'Campus events' },
-      { id: 'Groups', label: 'Groups', icon: 'people-circle', color: '#ec4899', desc: 'Join communities' },
-      { id: 'Feed', label: 'Confessions', icon: 'eye-off', color: '#6366f1', desc: 'Post anonymously', params: { openComposer: true, anonymous: true } },
-      { id: 'Connections', label: 'Connections', icon: 'people', color: '#0ea5e9', desc: 'Grow your network' },
+      { id: 'Video', label: 'Reels', icon: 'videocam', color: '#ef4444', desc: 'Watch & discover' },
     ],
   },
   {
@@ -39,27 +38,23 @@ const SECTIONS = [
   {
     title: 'Account',
     items: [
+      { id: 'SubscriptionScreen', label: 'Subscription', icon: 'diamond', color: '#FFD700', desc: 'Manage your LU Pro plan' },
+      { id: 'PaymentMethodsScreen', label: 'Payment Page', icon: 'card', color: '#22c55e', desc: 'Link M-Pesa & Airtel' },
       { id: 'Settings', label: 'Settings', icon: 'settings', color: '#6d7382', desc: 'App preferences' },
+      { id: 'Logout', label: 'Log Out', icon: 'log-out', color: '#ef4444', desc: 'Sign out of LU Connect' },
     ],
   },
 ];
 
 export default function MenuScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
-  const { profile } = useAuth();
-
-  // Live unread counts
-  const { data: notifications } = useQuery({
-    queryKey: ['menu-notifs', profile?.id],
-    enabled: !!profile?.id,
-    refetchInterval: 30000,
-    queryFn: async () => {
-      const { count } = await supabase.from('notifications').select('*', { count: 'exact', head: true }).eq('user_id', profile!.id).eq('is_read', false);
-      return count || 0;
-    },
-  });
+  const { profile, signOut } = useAuth();
 
   const handlePress = (item: any) => {
+    if (item.id === 'Logout') {
+      signOut();
+      return;
+    }
     if (item.id === 'Profile') {
       navigation.navigate('Profile', { id: profile?.id });
     } else if (item.params) {
@@ -80,8 +75,8 @@ export default function MenuScreen({ navigation }: any) {
         rightComponent={<Ionicons name="menu" size={48} color="#ef4444" style={{ marginTop: 4 }} />}
       />
 
-      <ScrollView 
-        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 20, paddingBottom: 100 + insets.bottom }} 
+      <ScrollView
+        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 20, paddingBottom: 100 + insets.bottom }}
         showsVerticalScrollIndicator={false}
       >
         {/* PROFILE HERO */}
@@ -90,115 +85,111 @@ export default function MenuScreen({ navigation }: any) {
           style={styles.profileSection}
           activeOpacity={0.7}
         >
-          {profile?.avatar_url ? (
-            <Image source={{ uri: profile.avatar_url }} style={styles.avatar} />
-          ) : (
-            <View style={[styles.avatar, styles.avatarPlaceholder]}>
-              <Text style={styles.avatarInitial}>{profile?.full_name?.[0]?.toUpperCase() || 'U'}</Text>
-            </View>
-          )}
+          <PremiumAvatar
+            avatarUrl={profile?.avatar_url}
+            fullName={profile?.full_name}
+            tier={profile?.subscription_tier || 'free'}
+            size={72}
+          />
           <View style={{ flex: 1, marginLeft: 16 }}>
-            <Text style={styles.name} numberOfLines={1}>{profile?.full_name || 'Your Name'}</Text>
-            <Text style={styles.uni} numberOfLines={1}>{profile?.university_name || 'LU Connect Student'}</Text>
-            {notifications ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
-                <Ionicons name="notifications" size={12} color="#ef4444" />
-                <Text style={{ color: '#ef4444', fontSize: 12, fontWeight: '600' }}>{notifications} new notifications</Text>
-              </View>
-            ) : null}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={{ color: '#fff', fontSize: 22, fontWeight: '800' }}>{profile?.full_name || 'User'}</Text>
+              <PremiumDiamond tier={profile?.subscription_tier || 'free'} />
+            </View>
+            <Text style={{ color: '#6d7382', fontSize: 14, marginTop: 2 }}>{profile?.university_name || 'Student'}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
+              <Ionicons name="notifications" size={14} color="#ef4444" />
+              <Text style={{ color: '#ef4444', fontSize: 13, fontWeight: '600' }}>1 new notifications</Text>
+            </View>
           </View>
-          <Ionicons name="chevron-forward" size={20} color="#1f1f1f" />
+          <Ionicons name="chevron-forward" size={22} color="#6d7382" />
         </TouchableOpacity>
 
         {/* HALL OF FAME */}
         <TouchableOpacity
+          style={styles.hallOfFame}
           onPress={() => navigation.navigate('HallOfFame')}
-          style={styles.hallOfFameSection}
-          activeOpacity={0.7}
+          activeOpacity={0.8}
         >
-          <View style={styles.iconWrap}>
-            <Ionicons name="trophy" size={32} color="#E5C07B" />
+          <Ionicons name="trophy" size={32} color="#f59e0b" />
+          <View style={{ flex: 1, marginLeft: 14 }}>
+            <Text style={{ color: '#f59e0b', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>THE LURIES 2026</Text>
+            <Text style={{ color: '#fff', fontSize: 18, fontWeight: '800', marginTop: 2 }}>Hall of Fame</Text>
+            <Text style={{ color: '#6d7382', fontSize: 13, marginTop: 2 }}>See the top students of the year</Text>
           </View>
-          <View style={{ flex: 1, marginLeft: 16 }}>
-            <Text style={{ color: '#E5C07B', fontSize: 10, fontWeight: '800', letterSpacing: 1, marginBottom: 4 }}>THE LURIES 2026</Text>
-            <Text style={styles.sectionTitleText}>Hall of Fame</Text>
-            <Text style={styles.sectionDesc}>See the top students of the year</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color="#1f1f1f" />
+          <Ionicons name="chevron-forward" size={22} color="#6d7382" />
         </TouchableOpacity>
 
-        {/* ADMIN (Only for adminsammy) */}
-        {profile?.email === 'adminsammy@admin.com' && (
-          <TouchableOpacity
-            onPress={() => navigation.navigate('AdminDashboard')}
-            style={styles.adminSection}
-            activeOpacity={0.7}
+        {/* LU PRO BANNER */}
+        <TouchableOpacity
+          style={styles.luProBanner}
+          activeOpacity={0.8}
+          onPress={() => navigation.navigate('SubscriptionScreen')}
+        >
+          <LinearGradient
+            colors={['rgba(255,215,0,0.15)', 'rgba(20,20,20,1)']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.luProGradient}
           >
-            <View style={[styles.iconWrap, { backgroundColor: 'rgba(239,68,68,0.1)' }]}>
-              <Ionicons name="shield-half" size={28} color="#ef4444" />
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Ionicons name="diamond" size={24} color="#FFD700" />
+                  <Text style={styles.luProTitle}>LU Pro</Text>
+                </View>
+                <Text style={styles.luProDesc}>Unlock custom icons, themes & more.</Text>
+              </View>
+              <LinearGradient
+                colors={['#FFDF00', '#D4AF37']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.luProBtn}
+              >
+                <Text style={styles.luProBtnText}>Upgrade</Text>
+              </LinearGradient>
             </View>
-            <View style={{ flex: 1, marginLeft: 16 }}>
-              <Text style={styles.sectionTitleText}>Admin Hub</Text>
-              <Text style={styles.sectionDesc}>Manage community, verifications, and requests.</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="#1f1f1f" />
-          </TouchableOpacity>
-        )}
+          </LinearGradient>
+        </TouchableOpacity>
 
         {/* SECTIONS */}
         {SECTIONS.map((section) => (
           <View key={section.title} style={{ marginTop: 32 }}>
             <Text style={styles.sectionHeader}>{section.title.toUpperCase()}</Text>
-            
             {section.items.map((item) => (
               <TouchableOpacity
                 key={item.id}
+                style={styles.menuItem}
                 onPress={() => handlePress(item)}
-                style={styles.rowItem}
                 activeOpacity={0.7}
               >
-                <View style={[styles.iconWrap, { backgroundColor: 'transparent' }]}>
-                  <Ionicons name={item.icon as any} size={24} color={item.color} />
+                <View style={[styles.iconWrap, { backgroundColor: `${item.color}15` }]}>
+                  <Ionicons name={item.icon as any} size={22} color={item.color} />
                 </View>
-                <View style={{ flex: 1, marginLeft: 16 }}>
-                  <Text style={styles.rowTitle}>{item.label}</Text>
-                  <Text style={styles.rowDesc}>{item.desc}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: '#fff', fontSize: 16, fontWeight: '600' }}>{item.label}</Text>
+                  <Text style={{ color: '#6d7382', fontSize: 13, marginTop: 2 }}>{item.desc}</Text>
                 </View>
-                <Ionicons name="chevron-forward" size={20} color="#1f1f1f" />
+                <Ionicons name="chevron-forward" size={20} color="#6d7382" />
               </TouchableOpacity>
             ))}
           </View>
         ))}
-
       </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  profileSection: {
-    flexDirection: 'row', alignItems: 'center', paddingVertical: 16,
-  },
-  avatar: { width: 64, height: 64, borderRadius: 32, borderWidth: 2, borderColor: '#ef4444' },
-  avatarPlaceholder: { backgroundColor: '#141414', alignItems: 'center', justifyContent: 'center' },
-  avatarInitial: { color: '#ef4444', fontSize: 24, fontWeight: '800' },
-  name: { color: '#fff', fontSize: 18, fontWeight: '800', marginBottom: 2 },
-  uni: { color: '#6d7382', fontSize: 13 },
-
-  hallOfFameSection: {
-    flexDirection: 'row', alignItems: 'center', paddingVertical: 16, marginTop: 8,
-  },
-  adminSection: {
-    flexDirection: 'row', alignItems: 'center', paddingVertical: 16, marginTop: 8,
-  },
-  
-  sectionHeader: { color: '#6d7382', fontSize: 11, fontWeight: '800', letterSpacing: 2, marginBottom: 16 },
-  
-  rowItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 16 },
-  iconWrap: { width: 40, alignItems: 'flex-start', justifyContent: 'center' },
-  rowTitle: { color: '#fff', fontSize: 16, fontWeight: '700', marginBottom: 2 },
-  rowDesc: { color: '#6d7382', fontSize: 13 },
-  
-  sectionTitleText: { color: '#fff', fontSize: 16, fontWeight: '700', marginBottom: 2 },
-  sectionDesc: { color: '#6d7382', fontSize: 13 },
+  profileSection: { flexDirection: 'row', alignItems: 'center', paddingVertical: 16 },
+  hallOfFame: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#141414', padding: 16, borderRadius: 16, marginTop: 24, borderWidth: 1, borderColor: '#1f1f1f' },
+  luProBanner: { marginTop: 20, marginBottom: 10, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,215,0,0.3)' },
+  luProGradient: { padding: 16 },
+  luProTitle: { color: '#FFD700', fontSize: 18, fontWeight: '800', letterSpacing: 0.5 },
+  luProDesc: { color: '#a1a1aa', fontSize: 12, marginTop: 4, marginLeft: 32 },
+  luProBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 },
+  luProBtnText: { color: '#000', fontSize: 13, fontWeight: '900' },
+  sectionHeader: { color: '#6d7382', fontSize: 12, fontWeight: '800', letterSpacing: 2, marginBottom: 12 },
+  menuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, gap: 14 },
+  iconWrap: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
 });
