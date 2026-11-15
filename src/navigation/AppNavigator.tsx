@@ -6,6 +6,7 @@ import ForceUpdateScreen from '../screens/ForceUpdateScreen';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { navigationRef } from './navigationRef';
 import { useAuth } from '../context/AuthContext';
 
 // Core Components
@@ -157,7 +158,7 @@ export default function AppNavigator() {
   // 1. Device Banned Stack
   if (deviceBanned) {
     return (
-      <NavigationContainer>
+      <NavigationContainer ref={navigationRef}>
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           <Stack.Screen name="DeviceBanned" component={require('../screens/DeviceBannedScreen').default} />
           <Stack.Screen name="ContactAdmin" component={ContactAdminScreen} />
@@ -169,7 +170,7 @@ export default function AppNavigator() {
   // 2. Session Locked Stack
   if (kickoutReason) {
     return (
-      <NavigationContainer>
+      <NavigationContainer ref={navigationRef}>
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           <Stack.Screen name="SessionLock" component={SessionLockScreen} />
           <Stack.Screen name="AccountIdRecovery" component={AccountIdRecoveryScreen} />
@@ -186,7 +187,7 @@ export default function AppNavigator() {
 
   // 3. Main Navigation
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef}>
       <DeepLinkListener />
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {!user ? (
