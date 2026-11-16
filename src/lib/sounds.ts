@@ -7,6 +7,7 @@ const FILES: Record<string, any> = {
   messageOut: require('../../assets/sounds/message-out.mp3'),
   notification: require('../../assets/sounds/notification.mp3'),
   typing: require('../../assets/sounds/typing.mp3'),
+  samsung: require('../../assets/sounds/samsung.mp3'),
 };
 
 const cache: Record<string, any> = {};
@@ -51,7 +52,7 @@ export async function playLike() { await play('like', 0.9, 200); }
 export async function playMessageIn() {
   const enabled = await AsyncStorage.getItem('pref_sounds');
   if (enabled === 'false') return;
- await play('messageIn', 0.9, 400); }
+ await play('samsung', 0.9, 3000); }
 export async function playMessageOut() { await play('messageOut', 0.7, 300); }
 export async function playNotification() { await play('notification', 0.85, 500); }
 export async function playComment() {}

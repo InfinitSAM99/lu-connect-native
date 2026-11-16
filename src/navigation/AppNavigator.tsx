@@ -44,9 +44,13 @@ import NotificationListScreen from '../screens/NotificationListScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import ProfileEditScreen from '../screens/ProfileEditScreen';
 import SettingsScreen from '../screens/SettingsScreen';
+import AudioCallScreen from '../screens/AudioCallScreen';
 import SecurityScreen from '../screens/SecurityScreen';
 import LoginActivityScreen from '../screens/LoginActivityScreen';
+import AppIconScreen from '../screens/AppIconScreen';
 import PrivacyScreen from '../screens/PrivacyScreen';
+import NotificationSettingsScreen from '../screens/NotificationSettingsScreen';
+import BlockedUsersScreen from '../screens/BlockedUsersScreen';
 import BiometricSettingsScreen from '../screens/BiometricSettingsScreen';
 import SetPatternScreen from '../screens/SetPatternScreen';
 import SecurityQuestionsScreen from '../screens/SecurityQuestionsScreen';
@@ -251,8 +255,12 @@ export default function AppNavigator() {
             {/* Settings & Details */}
             <Stack.Screen name="Settings" component={withLayout(SettingsScreen)} />
             <Stack.Screen name="Security" component={withLayout(SecurityScreen)} />
+            <Stack.Screen name="AudioCallScreen" component={AudioCallScreen} options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }} />
             <Stack.Screen name="LoginActivity" component={LoginActivityScreen} />
             <Stack.Screen name="Privacy" component={PrivacyScreen} />
+            <Stack.Screen name="AppIconScreen" component={AppIconScreen} />
+            <Stack.Screen name="NotificationSettingsScreen" component={NotificationSettingsScreen} />
+            <Stack.Screen name="BlockedUsers" component={BlockedUsersScreen} />
             <Stack.Screen name="BiometricSettingsScreen" component={BiometricSettingsScreen} />
             <Stack.Screen name="CheckAccountId" component={CheckAccountIdScreen} />
             <Stack.Screen name="SetPattern" component={SetPatternScreen} />
