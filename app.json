@@ -8,7 +8,9 @@
     "scheme": "luconnectnative",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "supportsTablet": true,
+      "bundleIdentifier": "com.infinitsam.luconnectnative"
     },
     "android": {
       "adaptiveIcon": {
@@ -21,7 +23,11 @@
       "jsEngine": "jsc",
       "googleServicesFile": "./google-services.json",
       "permissions": [
-        "INTERNET"
+        "INTERNET",
+        "POST_NOTIFICATIONS",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE",
+        "WAKE_LOCK"
       ],
       "versionCode": 1
     },
@@ -32,7 +38,15 @@
     },
     "plugins": [
       "@react-native-community/datetimepicker",
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#000000",
+          "sounds": []
+        }
+      ]
     ],
     "experiments": {
       "reactCompiler": true

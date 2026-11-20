@@ -385,7 +385,7 @@ export default function FeedScreen({ navigation, route }: any) {
       onDelete={handlePostDelete}
       onCommentOpen={(post: any) => setActivePost(post)}
       onMenu={(post: any) => setMenuPost(post)}
-      onPress={() => navigation.navigate('PostViewerScreen', { postId: item.id })}
+      onPress={() => navigation.navigate('PostDetail', { id: item.id })}
     />
   ), [handlePostUpdate, handlePostDelete, navigation]);
 

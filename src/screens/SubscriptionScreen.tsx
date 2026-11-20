@@ -29,12 +29,12 @@ export default function SubscriptionScreen({ navigation }: any) {
   const isPremium = profile?.subscription_tier === 'premium';
 
   useEffect(() => {
-    if (!profile?.id) return;
-    supabase.from('linked_payment_methods').select('phone_number').eq('user_id', profile.id).eq('is_default', true).maybeSingle()
-      .then(({ data }) => {
-        if (data) { setPhoneNumber(data.phone_number); setSavedPhone(data.phone_number); }
-      });
-  }, [profile?.id]);
+    // Read directly from the profile object (which we saved to in PaymentMethodsScreen)
+    if (profile?.mpesa_number) {
+      setPhoneNumber(profile.mpesa_number);
+      setSavedPhone(profile.mpesa_number);
+    }
+  }, [profile]);
 
   const handleSubscribe = async () => {
     if (!savedPhone && phoneNumber.length < 9) {

@@ -3,7 +3,6 @@ import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import { supabase } from './supabase';
 
-// 1. Configure how notifications appear when the app is open
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -13,37 +12,41 @@ Notifications.setNotificationHandler({
 });
 
 export async function initPushNotifications(userId: string) {
-  if (!Device.isDevice) {
-    console.log('Must use physical device for Push Notifications');
-    return;
-  }
+  if (!Device.isDevice) return;
 
-  // 2. Request permission
   const { status: existingStatus } = await Notifications.getPermissionsAsync();
   let finalStatus = existingStatus;
   if (existingStatus !== 'granted') {
     const { status } = await Notifications.requestPermissionsAsync();
     finalStatus = status;
   }
-  if (finalStatus !== 'granted') {
-    console.log('Failed to get push token for push notification!');
-    return;
-  }
+  if (finalStatus !== 'granted') return;
 
-  // 3. Get the token
   try {
     const token = (await Notifications.getExpoPushTokenAsync({
       projectId: "0c999e89-770d-4e66-b002-bf398b0a3b87",
     })).data;
-    console.log('Expo push token:', token);
+    
+    console.log('Expo push token generated:', token);
 
-    // 4. Save the token to the database so we can send notifications to this user
-    await supabase.from('profiles').update({ push_token: token }).eq('id', userId);
+    // 🔥 FIX: Use upsert to update if the user_id already exists
+    const { error } = await supabase.from('push_tokens').upsert(
+      { 
+        user_id: userId, 
+        token: token,
+        platform: Platform.OS,
+        updated_at: new Date().toISOString()
+      },
+      { onConflict: 'user_id' } 
+    );
+    
+    if (error) console.log('Error saving token:', error.message);
+    else console.log('Token saved successfully to database!');
+    
   } catch (e) {
     console.log('Error getting push token:', e);
   }
 
-  // 5. Android specific channel setup
   if (Platform.OS === 'android') {
     Notifications.setNotificationChannelAsync('default', {
       name: 'default',
@@ -56,7 +59,7 @@ export async function initPushNotifications(userId: string) {
 
 export async function clearPushToken(userId: string) {
   try {
-    await supabase.from('profiles').update({ push_token: null }).eq('id', userId);
+    await supabase.from('push_tokens').delete().eq('user_id', userId);
   } catch (e) {
     console.log('Error clearing push token:', e);
   }

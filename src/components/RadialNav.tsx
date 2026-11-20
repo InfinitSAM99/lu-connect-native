@@ -8,7 +8,7 @@ import FastButton from './FastButton';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
-// Sizes
+// Reverted to original sizes for the clean look
 const RADIUS = 70;
 const BUTTON_SIZE = 50;
 const ICON_SIZE = 36;
@@ -146,8 +146,6 @@ export default function RadialNav({ unreadMessages = 0 }: any) {
                 height: ICON_SIZE,
                 opacity: openAnim,
                 transform: [{ translateX }, { translateY }, { scale }],
-                // CRITICAL: Only intercept touches when menu is open
-                pointerEvents: open ? 'auto' : 'none',
               }}
               pointerEvents={open ? 'auto' : 'none'}
             >
@@ -178,7 +176,6 @@ export default function RadialNav({ unreadMessages = 0 }: any) {
             { transform: [{ scale: luScale }, { rotate: luRotate }] },
             open && styles.luButtonOpen,
           ]}
-          // The LU button is always tappable
           pointerEvents="auto"
         >
           <FastButton onPress={handleLuTap} style={styles.luButton}>

@@ -14,14 +14,14 @@ export default function Splash({ onDone }: { onDone: () => void }) {
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const stageScale = useRef(new Animated.Value(0.85)).current;
   const stageOpacity = useRef(new Animated.Value(0)).current;
-  
+
   const frameOffset = useRef(new Animated.Value(800)).current;
   const lOffset = useRef(new Animated.Value(400)).current;
   const uOffset = useRef(new Animated.Value(400)).current;
-  
+
   const glowOpacity = useRef(new Animated.Value(0)).current;
   const glowStrokeWidth = useRef(new Animated.Value(6)).current;
-  
+
   const textOpacity = useRef(new Animated.Value(0)).current;
   const textTranslateY = useRef(new Animated.Value(6)).current;
 
@@ -80,38 +80,34 @@ export default function Splash({ onDone }: { onDone: () => void }) {
 
   return (
     <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
-      
-      {/* The `flex: 1` + `justifyContent: 'center'` in styles.container 
-          guarantees this whole block is DEAD CENTER */}
-      
       <Animated.View style={[
-        styles.stage, 
+        styles.stage,
         { opacity: stageOpacity, transform: [{ scale: stageScale }] }
       ]}>
         <Svg viewBox="0 0 200 200" width={220} height={220}>
           {/* Frame draws Right, Down, Left, Up based on SVG shape */}
-          <AnimatedRect 
+          <AnimatedRect
             x="14" y="14" width="172" height="172" rx="34"
             fill="none" stroke="#ef4444" strokeWidth={6}
             strokeLinecap="round" strokeLinejoin="round"
             strokeDasharray="800" strokeDashoffset={frameOffset}
           />
           {/* Letter L */}
-          <AnimatedPath 
-            d="M 62 60 L 62 130 L 96 130" 
-            fill="none" stroke="#ffffff" strokeWidth={10} 
+          <AnimatedPath
+            d="M 62 60 L 62 130 L 96 130"
+            fill="none" stroke="#ffffff" strokeWidth={10}
             strokeLinecap="round" strokeLinejoin="round"
             strokeDasharray="400" strokeDashoffset={lOffset}
           />
           {/* Letter U */}
-          <AnimatedPath 
-            d="M 112 60 L 112 112 A 18 18 0 0 0 148 112 L 148 60" 
-            fill="none" stroke="#ffffff" strokeWidth={10} 
+          <AnimatedPath
+            d="M 112 60 L 112 112 A 18 18 0 0 0 148 112 L 148 60"
+            fill="none" stroke="#ffffff" strokeWidth={10}
             strokeLinecap="round" strokeLinejoin="round"
             strokeDasharray="400" strokeDashoffset={uOffset}
           />
           {/* Glow Pulse */}
-          <AnimatedRect 
+          <AnimatedRect
             x="14" y="14" width="172" height="172" rx="34"
             fill="none" stroke="#ef4444"
             strokeLinecap="round" strokeLinejoin="round"
@@ -123,7 +119,7 @@ export default function Splash({ onDone }: { onDone: () => void }) {
       <Animated.View style={{
         opacity: textOpacity,
         transform: [{ translateY: textTranslateY }],
-        marginTop: 28, 
+        marginTop: 28,
       }}>
         <Text style={styles.creditText}>by Samuel Mugasia</Text>
       </Animated.View>

@@ -49,6 +49,7 @@ import SecurityScreen from '../screens/SecurityScreen';
 import LoginActivityScreen from '../screens/LoginActivityScreen';
 import AppIconScreen from '../screens/AppIconScreen';
 import PrivacyScreen from '../screens/PrivacyScreen';
+import PaymentMethodsScreen from '../screens/PaymentMethodsScreen';
 import NotificationSettingsScreen from '../screens/NotificationSettingsScreen';
 import BlockedUsersScreen from '../screens/BlockedUsersScreen';
 import BiometricSettingsScreen from '../screens/BiometricSettingsScreen';
@@ -82,6 +83,7 @@ import ProfessionalDashboardScreen from '../screens/ProfessionalDashboardScreen'
 import SubscriptionScreen from '../screens/SubscriptionScreen';
 import AnnouncementsScreen from '../screens/AnnouncementsScreen';
 import PostDetailScreen from '../screens/PostDetailScreen';
+import ReplyThreadScreen from '../screens/ReplyThreadScreen';
 
 // Academic Hub
 import AcademicHubScreen from '../screens/AcademicHubScreen';
@@ -258,6 +260,7 @@ export default function AppNavigator() {
             <Stack.Screen name="AudioCallScreen" component={AudioCallScreen} options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }} />
             <Stack.Screen name="LoginActivity" component={LoginActivityScreen} />
             <Stack.Screen name="Privacy" component={PrivacyScreen} />
+            <Stack.Screen name="PaymentMethodsScreen" component={PaymentMethodsScreen} />
             <Stack.Screen name="AppIconScreen" component={AppIconScreen} />
             <Stack.Screen name="NotificationSettingsScreen" component={NotificationSettingsScreen} />
             <Stack.Screen name="BlockedUsers" component={BlockedUsersScreen} />
@@ -291,6 +294,7 @@ export default function AppNavigator() {
             <Stack.Screen name="TunnelFeed" component={TunnelFeedScreen} />
             <Stack.Screen name="TunnelModeration" component={TunnelModerationScreen} />
             <Stack.Screen name="PostDetail" component={withLayout(PostDetailScreen)} />
+            <Stack.Screen name="ReplyThreadScreen" component={ReplyThreadScreen} options={{ presentation: 'fullScreenModal', animation: 'slide_from_right' }} />
 
             {/* Admin Screens */}
             <Stack.Screen name="AdminDashboard" component={withLayout(AdminDashboardScreen)} />
