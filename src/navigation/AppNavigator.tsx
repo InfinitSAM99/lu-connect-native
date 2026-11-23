@@ -107,6 +107,8 @@ import AdminMenuScreen from '../screens/AdminMenuScreen';
 import AppUpdaterScreen from '../screens/AppUpdaterScreen';
 import AdminPlaceholderScreen from '../screens/AdminPlaceholderScreen';
 
+import ThemeCustomizerScreen from '../screens/ThemeCustomizerScreen';
+
 const Stack = createNativeStackNavigator();
 
 const withLayout = (Component) => (props) => (
@@ -287,6 +289,7 @@ export default function AppNavigator() {
             <Stack.Screen name="NotificationList" component={NotificationListScreen} />
             <Stack.Screen name="Conversation" component={ConversationScreen} />
             <Stack.Screen name="ChatInfoScreen" component={ChatInfoScreen} />
+            <Stack.Screen name="ThemeCustomizerScreen" component={ThemeCustomizerScreen} options={{ presentation: 'modal' }} />
             <Stack.Screen name="GroupDetail" component={GroupDetailScreen} />
             <Stack.Screen name="GroupSettings" component={GroupSettingsScreen} />
             <Stack.Screen name="EventDetail" component={EventDetailScreen} />
