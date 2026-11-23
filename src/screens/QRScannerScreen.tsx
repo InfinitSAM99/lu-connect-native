@@ -27,7 +27,9 @@ export default function QRScannerScreen({ navigation }: any) {
     setScanned(true);
     tapLight();
 
-    const targetUserId = data.split('/').pop();
+    // Extract target ID from URL: luconnectnative://profile/USER_ID
+    const match = data.match(/profile\/([a-zA-Z0-9-]+)/i);
+    const targetUserId = match ? match[1] : data; // Fallback to raw data if not matched
 
     if (!targetUserId || targetUserId.length < 10) {
       Toast.show({ type: 'error', text1: 'Invalid QR', text2: 'This is not a LU Connect QR code.' });
@@ -43,10 +45,18 @@ export default function QRScannerScreen({ navigation }: any) {
 
     setLoading(true);
     try {
-      const { data: existingFollow } = await supabase.from('follows').select('id').eq('follower_id', profile.id).eq('following_id', targetUserId).maybeSingle();
+      const { data: existingFollow } = await supabase
+        .from('follows')
+        .select('id')
+        .eq('follower_id', profile.id)
+        .eq('following_id', targetUserId)
+        .maybeSingle();
 
       if (!existingFollow) {
-        await supabase.from('follows').insert({ follower_id: profile.id, following_id: targetUserId });
+        await supabase.from('follows').insert({ 
+          follower_id: profile.id, 
+          following_id: targetUserId 
+        });
         Toast.show({ type: 'success', text1: 'Following!', text2: 'You are now following this user.' });
       } else {
         Toast.show({ type: 'info', text1: 'Already Following' });

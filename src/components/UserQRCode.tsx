@@ -10,12 +10,12 @@ interface UserQRCodeProps {
 
 export default function UserQRCode({ userId, fullName, avatarUrl }: UserQRCodeProps) {
   // The QR code contains a direct deep link to the user's profile
-  const qrValue = `https://luconnect.app/profile/${userId}`;
+  const qrValue = `luconnectnative://profile/${userId}`;
 
   return (
     <View style={styles.container}>
       <View style={styles.qrWrap}>
-        <QRCode 
+        <QRCode
           value={qrValue}
           size={200}
           color="#000"

@@ -177,7 +177,14 @@ export default function ConnectionsScreen({ navigation }: any) {
         title="Network" 
         subtitle="Connect with students across campus"
         showBack={false} 
-        rightComponent={<Ionicons name="people" size={48} color="#ef4444" style={{ marginTop: 4 }} />} 
+        rightComponent={
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>
+            <TouchableOpacity onPress={() => navigation.navigate("QRScanner")}>
+              <Ionicons name="qr-code-outline" size={32} color="#FFD700" />
+            </TouchableOpacity>
+            <Ionicons name="people" size={48} color="#ef4444" style={{ marginTop: 4 }} />
+          </View>
+        } 
       />
 
       {/* TABS */}
