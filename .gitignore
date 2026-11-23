@@ -4,3 +4,7 @@ node_modules
 .env
 service-account.json
 google-services.json
+
+# Expo
+.expo/
+.expo/
