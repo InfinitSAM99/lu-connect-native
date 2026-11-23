@@ -104,7 +104,6 @@ import AdminModerationDetailScreen from '../screens/AdminModerationDetailScreen'
 import AdminSecurityScreen from '../screens/AdminSecurityScreen';
 import AdminSettingsScreen from '../screens/AdminSettingsScreen';
 import AdminMenuScreen from '../screens/AdminMenuScreen';
-import AppUpdaterScreen from '../screens/AppUpdaterScreen';
 import AdminPlaceholderScreen from '../screens/AdminPlaceholderScreen';
 
 import ThemeCustomizerScreen from '../screens/ThemeCustomizerScreen';
@@ -130,10 +129,17 @@ export default function AppNavigator() {
     const checkVersion = async () => {
       try {
         const { data } = await supabase.from('app_settings').select('*').eq('id', 1).single();
-        if (data && data.apk_url) {
+        
+        console.log("=== UPDATE CHECK ===");
+        console.log("Supabase Data:", data);
+        
+        if (data) {
           const currentVersion = Application.nativeApplicationVersion || '1.0.0';
-          // If the DB version is different from the app version, force update
-          if (currentVersion !== data.latest_version) {
+          console.log("Current Version:", currentVersion, "DB Version:", data.latest_version);
+          
+          // Trigger if versions are different OR force_update is explicitly true
+          if (data.force_update === true) {
+            console.log("FORCE UPDATE TRIGGERED!");
             setNeedsUpdate(true);
             setUpdateInfo({ url: data.apk_url, version: data.latest_version });
           }
@@ -314,7 +320,6 @@ export default function AppNavigator() {
             <Stack.Screen name="AdminModerationDetail" component={AdminModerationDetailScreen} />
             <Stack.Screen name="AdminSecurity" component={withLayout(AdminSecurityScreen)} />
             <Stack.Screen name="AdminSettings" component={withLayout(AdminSettingsScreen)} />
-            <Stack.Screen name="AppUpdater" component={withLayout(AppUpdaterScreen)} />
             
             {/* Placeholder for unfinished admin routes */}
             <Stack.Screen name="QRScanner" component={QRScannerScreen} options={{ presentation: "fullScreenModal", headerShown: false }} />

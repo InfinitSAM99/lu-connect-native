@@ -52,7 +52,6 @@ const SECTIONS = [
   {
     title: 'App Updates',
     rows: [
-      { key: 'force_update', label: 'Release New Update', desc: 'Upload APK and force users to update', type: 'action' },
     ],
   },
   {
@@ -151,11 +150,7 @@ export default function AdminSettingsScreen({ navigation }: any) {
   };
 
   const handleAction = (key: string) => {
-    if (key === 'force_update') {
-      navigation.navigate('AppUpdater');
-    } else if (key === 'run_tick') {
-      runBotTick();
-    }
+    runBotTick();
   };
 
   const runBotTick = async () => {
