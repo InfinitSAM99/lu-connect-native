@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import * as Application from 'expo-application';
 import { supabase } from '../lib/supabase';
 import ForceUpdateScreen from '../screens/ForceUpdateScreen';
+import MaintenanceScreen from '../screens/MaintenanceScreen';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -124,6 +125,8 @@ export default function AppNavigator() {
   // Update State
   const [needsUpdate, setNeedsUpdate] = useState(false);
   const [updateInfo, setUpdateInfo] = useState({ url: '', version: '' });
+  const [isMaintenance, setIsMaintenance] = useState(false);
+  const [maintenanceMsg, setMaintenanceMsg] = useState('');
 
   useEffect(() => {
     const checkVersion = async () => {
@@ -134,6 +137,8 @@ export default function AppNavigator() {
         console.log("Supabase Data:", data);
         
         if (data) {
+          setIsMaintenance(data.maintenance === true);
+          setMaintenanceMsg(data.maintenance_message || 'LU Connect is being upgraded. We will be back online shortly.');
           const currentVersion = Application.nativeApplicationVersion || '1.0.0';
           console.log("Current Version:", currentVersion, "DB Version:", data.latest_version);
           
@@ -196,6 +201,11 @@ export default function AppNavigator() {
         </Stack.Navigator>
       </NavigationContainer>
     );
+  }
+
+  // MAINTENANCE CHECK
+  if (isMaintenance) {
+    return <MaintenanceScreen message={maintenanceMsg} onRetry={() => setIsMaintenance(false)} />;
   }
 
   // FORCE UPDATE CHECK
