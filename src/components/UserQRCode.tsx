@@ -9,8 +9,8 @@ interface UserQRCodeProps {
 }
 
 export default function UserQRCode({ userId, fullName, avatarUrl }: UserQRCodeProps) {
-  // The QR code contains a direct deep link to the user's profile
-  const qrValue = `luconnectnative://profile/${userId}`;
+  // The QR code contains a website link that will redirect to the app
+  const qrValue = `https://lu-connect-website-sigma.vercel.app/profile/${userId}`;
 
   return (
     <View style={styles.container}>
