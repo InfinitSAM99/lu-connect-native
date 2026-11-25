@@ -67,7 +67,8 @@
         {
           "url": "https://ntfy.sh/lu-connect-students-9f4k2"
         }
-      ]
+      ],
+      "./plugins/withPerUserNtfy"
     ],
     "experiments": {
       "reactCompiler": true
