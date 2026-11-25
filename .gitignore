@@ -8,3 +8,4 @@ google-services.json
 # Expo
 .expo/
 .expo/
+.env.local
