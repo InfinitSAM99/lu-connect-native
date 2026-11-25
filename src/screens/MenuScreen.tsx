@@ -29,6 +29,15 @@ const SECTIONS = [
     ],
   },
   {
+    title: 'Professional',
+    items: [
+      { id: 'ProfessionalMode', label: 'Professional Mode', icon: 'rocket', color: '#a855f7', desc: 'Elevate your profile' },
+      { id: 'ProfessionalDashboard', label: 'Professional Dashboard', icon: 'bar-chart', color: '#f59e0b', desc: 'See your analytics' },
+      { id: 'GetVerified', label: 'Get Verified', icon: 'shield-checkmark', color: '#06b6d4', desc: 'Verify your identity faster' },
+      { id: 'GetBoosted', label: 'Get Boosted', icon: 'flame', color: '#ec4899', desc: 'Boost your profile visibility' },
+    ],
+  },
+  {
     title: 'Content',
     items: [
       { id: 'Announcements', label: 'Announcements', icon: 'megaphone', color: '#f97316', desc: 'Campus updates' },
@@ -41,20 +50,15 @@ const SECTIONS = [
       { id: 'SubscriptionScreen', label: 'Subscription', icon: 'diamond', color: '#FFD700', desc: 'Manage your LU Pro plan' },
       { id: 'PaymentMethodsScreen', label: 'Payment Page', icon: 'card', color: '#22c55e', desc: 'Link M-Pesa & Airtel' },
       { id: 'Settings', label: 'Settings', icon: 'settings', color: '#6d7382', desc: 'App preferences' },
-      { id: 'Logout', label: 'Log Out', icon: 'log-out', color: '#ef4444', desc: 'Sign out of LU Connect' },
     ],
   },
 ];
 
 export default function MenuScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
-  const { profile, signOut } = useAuth();
+  const { profile } = useAuth();
 
   const handlePress = (item: any) => {
-    if (item.id === 'Logout') {
-      signOut();
-      return;
-    }
     if (item.id === 'Profile') {
       navigation.navigate('Profile', { id: profile?.id });
     } else if (item.params) {
@@ -99,7 +103,7 @@ export default function MenuScreen({ navigation }: any) {
             <Text style={{ color: '#6d7382', fontSize: 14, marginTop: 2 }}>{profile?.university_name || 'Student'}</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
               <Ionicons name="notifications" size={14} color="#ef4444" />
-              <Text style={{ color: '#ef4444', fontSize: 13, fontWeight: '600' }}>1 new notifications</Text>
+              <Text style={{ color: '#ef4444', fontSize: 13, fontWeight: '600' }}>1 new notification</Text>
             </View>
           </View>
           <Ionicons name="chevron-forward" size={22} color="#6d7382" />

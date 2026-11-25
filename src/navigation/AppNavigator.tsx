@@ -2,7 +2,6 @@
 import React, { useState, useEffect } from 'react';
 import * as Application from 'expo-application';
 import { supabase } from '../lib/supabase';
-import ForceUpdateScreen from '../screens/ForceUpdateScreen';
 import MaintenanceScreen from '../screens/MaintenanceScreen';
 import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity, Linking } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
@@ -25,9 +24,10 @@ import PendingScreen from '../screens/PendingScreen';
 import RejectedScreen from '../screens/RejectedScreen';
 import AppealScreen from '../screens/AppealScreen';
 import ProfileEnforcerScreen from '../screens/ProfileEnforcerScreen';
+import AccountSettingsScreen from '../screens/AccountSettingsScreen';
+import WelcomeInfinitScreen from '../screens/WelcomeInfinitScreen';
 import FacultyPickerScreen from '../screens/FacultyPickerScreen';
 import AcademicLevelPickerScreen from '../screens/AcademicLevelPickerScreen';
-import SessionLockScreen from '../screens/SessionLockScreen';
 import AccountIdRecoveryScreen from '../screens/AccountIdRecoveryScreen';
 import ContactAdminScreen from '../screens/ContactAdminScreen';
 
@@ -46,7 +46,6 @@ import ProfileScreen from '../screens/ProfileScreen';
 import ProfileEditScreen from '../screens/ProfileEditScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import AudioCallScreen from '../screens/AudioCallScreen';
-import SecurityScreen from '../screens/SecurityScreen';
 import LoginActivityScreen from '../screens/LoginActivityScreen';
 import AppIconScreen from '../screens/AppIconScreen';
 import PrivacyScreen from '../screens/PrivacyScreen';
@@ -118,7 +117,7 @@ const withLayout = (Component) => (props) => (
 );
 
 export default function AppNavigator() {
-  const { user, profile, loading, kickoutReason, deviceBanned } = useAuth();
+  const { user, profile, loading } = useAuth();
   const [splashDone, setSplashDone] = useState(false);
   const [forceLoad, setForceLoad] = useState(false);
   
@@ -185,48 +184,8 @@ export default function AppNavigator() {
   }
 
   // 1. Device Banned Stack
-  if (deviceBanned) {
-    return (
-      <NavigationContainer ref={navigationRef}>
-      {optionalBanner.visible && (
-        <View style={{ backgroundColor: '#1e3a8a', paddingHorizontal: 14, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-          <Text style={{ color: '#fff', fontSize: 12, fontWeight: '600', flex: 1 }}>
-            Update {optionalBanner.version} available
-          </Text>
-          <TouchableOpacity
-            onPress={() => Linking.openURL(optionalBanner.url).catch(() => {})}
-            style={{ backgroundColor: '#3b82f6', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}
-          >
-            <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>Get</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => setOptionalBanner((prev) => ({ ...prev, visible: false }))}
-            style={{ paddingHorizontal: 6, paddingVertical: 4 }}
-          >
-            <Text style={{ color: '#cbd5e1', fontSize: 12, fontWeight: '700' }}>Dismiss</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-        <Stack.Navigator screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="DeviceBanned" component={require('../screens/DeviceBannedScreen').default} />
-          <Stack.Screen name="ContactAdmin" component={ContactAdminScreen} />
-        </Stack.Navigator>
-      </NavigationContainer>
-    );
-  }
 
   // 2. Session Locked Stack
-  if (kickoutReason) {
-    return (
-      <NavigationContainer ref={navigationRef}>
-        <Stack.Navigator screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="SessionLock" component={SessionLockScreen} />
-          <Stack.Screen name="AccountIdRecovery" component={AccountIdRecoveryScreen} />
-          <Stack.Screen name="ContactAdmin" component={ContactAdminScreen} />
-        </Stack.Navigator>
-      </NavigationContainer>
-    );
-  }
 
   // MAINTENANCE CHECK
   if (isMaintenance) {
@@ -293,7 +252,6 @@ export default function AppNavigator() {
             
             {/* Settings & Details */}
             <Stack.Screen name="Settings" component={withLayout(SettingsScreen)} />
-            <Stack.Screen name="Security" component={withLayout(SecurityScreen)} />
             <Stack.Screen name="AudioCallScreen" component={AudioCallScreen} options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }} />
             <Stack.Screen name="LoginActivity" component={LoginActivityScreen} />
             <Stack.Screen name="Privacy" component={PrivacyScreen} />
@@ -306,9 +264,9 @@ export default function AppNavigator() {
             <Stack.Screen name="SetPattern" component={SetPatternScreen} />
             <Stack.Screen name="SecurityQuestions" component={SecurityQuestionsScreen} />
             <Stack.Screen name="AccountIdRecovery" component={AccountIdRecoveryScreen} />
-            <Stack.Screen name="SessionLock" component={SessionLockScreen} />
 
-            <Stack.Screen name="AccountsCenter" component={withLayout(AccountsCenterScreen)} />
+            <Stack.Screen name="AccountsCenter" component={AccountsCenterScreen} />
+            <Stack.Screen name="AccountSettings" component={withLayout(AccountSettingsScreen)} />
             <Stack.Screen name="Preferences" component={withLayout(PreferencesScreen)} />
             <Stack.Screen name="ProfileEdit" component={ProfileEditScreen} />
             <Stack.Screen name="ProfessionalMode" component={withLayout(ProfessionalModeScreen)} />

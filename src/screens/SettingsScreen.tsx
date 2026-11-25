@@ -3,23 +3,15 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'rea
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
-import { PremiumAvatar } from '../components/PremiumBadge';
 
-function SettingRow({ onClick, iconName, title, subtitle, danger, isLast, iconColor }: any) {
+function SettingRow({ onClick, iconName, title }: any) {
   return (
-    <TouchableOpacity 
-      style={[styles.row, !isLast && styles.rowBorder]} 
-      onPress={onClick} 
-      activeOpacity={0.6}
-    >
+    <TouchableOpacity style={styles.row} onPress={onClick} activeOpacity={0.6}>
       <View style={styles.iconWrap}>
-        <Ionicons name={iconName} size={20} color={danger ? '#ef4444' : (iconColor || '#fff')} />
+        <Ionicons name={iconName} size={26} color="#fff" />
       </View>
-      <View style={styles.textWrap}>
-        <Text style={[styles.rowTitle, danger && { color: '#ef4444' }]}>{title}</Text>
-        {subtitle && <Text style={styles.rowSubtitle}>{subtitle}</Text>}
-      </View>
-      <Ionicons name="chevron-forward" size={18} color="#3f3f3f" />
+      <Text style={styles.rowTitle}>{title}</Text>
+      <Ionicons name="chevron-forward" size={22} color="#6d7382" />
     </TouchableOpacity>
   );
 }
@@ -27,102 +19,82 @@ function SettingRow({ onClick, iconName, title, subtitle, danger, isLast, iconCo
 export default function SettingsScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
   const { profile, signOut } = useAuth();
-  const tier = profile?.subscription_tier || 'free';
 
   return (
     <View style={styles.container}>
+      
       {/* HEADER */}
-      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+      <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={24} color="#fff" />
+          <Ionicons name="arrow-back" size={28} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>SETTINGS</Text>
-        <View style={{ width: 40 }} />
+        <View style={{ width: 28 }} />
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingBottom: 100 }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
         
-        {/* PROFILE CARD */}
-        <TouchableOpacity
-          style={styles.profileCard}
-          onPress={() => navigation.navigate('Profile', { id: profile?.id })}
-          activeOpacity={0.8}
-        >
-          <PremiumAvatar avatarUrl={profile?.avatar_url} fullName={profile?.full_name || 'User'} tier={tier as any} size={64} />
-          <View style={{ flex: 1, marginLeft: 16 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Text style={styles.profileName}>{profile?.full_name || 'User'}</Text>
+        {/* INFINIT LOGO HERO */}
+        <View style={styles.hero}>
+          <Image 
+            source={require('../../assets/images/infinit_logo.png')} 
+            style={styles.infinitLogo} 
+          />
+          <Text style={styles.brandText}>INFINIT CO ACCOUNT</Text>
+        </View>
+
+        <View style={styles.listContainer}>
+          
+          {/* PROFILE ROW */}
+          <TouchableOpacity 
+            style={styles.row} 
+            onPress={() => navigation.navigate('Profile')} 
+            activeOpacity={0.6}
+          >
+            <View style={styles.iconWrap}>
+              <Ionicons name="person-circle-outline" size={32} color="#fff" />
             </View>
-            <Text style={styles.profileUni}>{profile?.university_name || 'Student'}</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color="#6d7382" />
-        </TouchableOpacity>
+            <Text style={styles.rowTitle}>Profile</Text>
+            <Ionicons name="chevron-forward" size={22} color="#6d7382" />
+          </TouchableOpacity>
 
-        {/* ACCOUNT */}
-        <Text style={styles.sectionHeader}>Account</Text>
-        <View style={styles.cardGroup}>
-          <SettingRow onClick={() => navigation.navigate('AccountsCenter')} iconName="person-circle-outline" title="Accounts Center" subtitle="Password, personal details" />
-          <SettingRow onClick={() => navigation.navigate('Security')} iconName="shield-checkmark-outline" title="Security Hub" subtitle="Pattern, questions, password" />
-          <SettingRow onClick={() => navigation.navigate('Privacy')} iconName="lock-closed-outline" title="Privacy & App Lock" subtitle="Biometrics, last seen, read receipts" />
-          <SettingRow onClick={() => navigation.navigate('LoginActivity')} iconName="desktop-outline" title="Login Activity" subtitle="Where you're logged in" />
-          <SettingRow onClick={() => navigation.navigate('BlockedUsers')} iconName="ban-outline" title="Blocked Users" subtitle="Manage blocked accounts" isLast />
-        </View>
+          <SettingRow onClick={() => navigation.navigate('AccountsCenter')} iconName="person-outline" title="Account Center" />
+          <SettingRow onClick={() => navigation.navigate('Privacy')} iconName="shield-outline" title="Privacy & App Lock" />
+          <SettingRow onClick={() => navigation.navigate('LoginActivity')} iconName="log-in-outline" title="Login Activity" />
+          <SettingRow onClick={() => navigation.navigate('BlockedUsers')} iconName="ban-outline" title="Blocked Users" />
+          <SettingRow onClick={() => navigation.navigate('Preferences')} iconName="color-palette-outline" title="Appearance & Theme" />
+          <SettingRow onClick={() => navigation.navigate('NotificationSettings')} iconName="notifications-outline" title="Notifications" />
+          <SettingRow onClick={() => navigation.navigate('Announcements')} iconName="megaphone-outline" title="Announcements" />
+          <SettingRow onClick={() => navigation.navigate('Events')} iconName="calendar-outline" title="Events" />
+          <SettingRow onClick={() => navigation.navigate('ContactAdmin')} iconName="help-circle-outline" title="Help Center" />
 
-        {/* PREFERENCES */}
-        <Text style={styles.sectionHeader}>Preferences</Text>
-        <View style={styles.cardGroup}>
-          <SettingRow onClick={() => navigation.navigate('Preferences')} iconName="color-palette-outline" title="Appearance & Theme" subtitle="Dark mode, chat themes" />
-          <SettingRow onClick={() => navigation.navigate('NotificationSettings')} iconName="notifications-outline" title="Notifications" subtitle="Messages, likes, follows" isLast />
-        </View>
-
-        {/* SUPPORT */}
-        <Text style={styles.sectionHeader}>Support & More</Text>
-        <View style={styles.cardGroup}>
-          <SettingRow onClick={() => navigation.navigate('Announcements')} iconName="megaphone-outline" title="Announcements" subtitle="Campus-wide updates" />
-          <SettingRow onClick={() => navigation.navigate('Events')} iconName="calendar-outline" title="Events" subtitle="What's happening on campus" />
-          <SettingRow onClick={() => {}} iconName="help-circle-outline" title="Help Center" subtitle="Get support" isLast />
-        </View>
-
-        {/* LOGOUT */}
-        <View style={[styles.cardGroup, { marginTop: 24 }]}>
+          {/* LOGOUT */}
           <TouchableOpacity style={styles.row} onPress={signOut} activeOpacity={0.6}>
             <View style={styles.iconWrap}>
-              <Ionicons name="log-out-outline" size={20} color="#ef4444" />
+              <Ionicons name="log-out-outline" size={26} color="#ef4444" />
             </View>
-            <View style={styles.textWrap}>
-              <Text style={[styles.rowTitle, { color: '#ef4444' }]}>Log out</Text>
-            </View>
+            <Text style={[styles.rowTitle, { color: '#ef4444' }]}>Log out</Text>
           </TouchableOpacity>
+
         </View>
 
-        <Text style={{ textAlign: 'center', color: '#3f3f3f', fontSize: 12, marginTop: 24, fontWeight: '600' }}>
-          LU CONNECT v1.0.0
-        </Text>
-
+        <Text style={styles.footerText}>LU CONNECT v2.0.0</Text>
       </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#1f1f1f' },
-  backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { color: '#fff', fontSize: 13, fontWeight: '800', letterSpacing: 2 },
-
-  profileCard: { flexDirection: 'row', alignItems: 'center', padding: 16, marginHorizontal: 16, marginTop: 20, marginBottom: 8, backgroundColor: '#0a0a0a', borderRadius: 16, borderWidth: 1, borderColor: '#1f1f1f' },
-  profileName: { color: '#fff', fontSize: 18, fontWeight: '700', marginBottom: 2 },
-  profileUni: { color: '#6d7382', fontSize: 13 },
-
-  sectionHeader: { color: '#6d7382', fontSize: 12, fontWeight: '700', letterSpacing: 0.5, paddingHorizontal: 20, paddingTop: 24, paddingBottom: 8 },
-  
-  // The premium card look for grouped rows
-  cardGroup: { backgroundColor: '#0a0a0a', borderRadius: 16, marginHorizontal: 16, borderWidth: 1, borderColor: '#1f1f1f', overflow: 'hidden' },
-  
-  row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16 },
-  rowBorder: { borderBottomWidth: 1, borderBottomColor: '#1f1f1f' },
-  iconWrap: { width: 32, alignItems: 'flex-start' },
-  textWrap: { flex: 1 },
-  rowTitle: { fontWeight: '600', fontSize: 15, color: '#fff' },
-  rowSubtitle: { fontSize: 12, color: '#6d7382', marginTop: 2 },
+  container: { flex: 1, backgroundColor: '#000' }, // Pure black
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 10 },
+  backBtn: { padding: 4 },
+  headerTitle: { color: '#fff', fontSize: 15, fontWeight: '800', letterSpacing: 1.5 },
+  hero: { alignItems: 'center', marginTop: 10, marginBottom: 20 },
+  infinitLogo: { width: 180, height: 60, resizeMode: 'contain', marginBottom: 4 },
+  brandText: { color: '#6d7382', fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase' },
+  listContainer: { paddingHorizontal: 24, paddingTop: 10 },
+  row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 22 },
+  iconWrap: { width: 40, marginRight: 20, alignItems: 'flex-start', justifyContent: 'center' },
+  rowTitle: { flex: 1, color: '#fff', fontSize: 16, fontWeight: '500' },
+  footerText: { textAlign: 'center', color: '#3f3f3f', fontSize: 12, marginTop: 40, fontWeight: '600', letterSpacing: 1 }
 });

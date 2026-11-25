@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, Modal, StyleSheet, TextInput, TouchableOpacity, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -10,16 +10,33 @@ import UniversityPickerScreen from './UniversityPickerScreen';
 export default function ProfileEnforcerScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
   const { profile, setProfile, reloadProfile, signOut } = useAuth();
-  
+
   const [avatarUrl, setAvatarUrl] = useState(profile?.avatar_url || '');
+  const [fullName, setFullName] = useState(profile?.full_name || '');
+  const [username, setUsername] = useState(profile?.username || '');
+  const [admissionNumber, setAdmissionNumber] = useState(profile?.admission_number || '');
+  const [phoneNumber, setPhoneNumber] = useState(profile?.phone_number || '');
+  
+  // Keep university in local state to avoid glitching the app navigator
+  const [universityId, setUniversityId] = useState(profile?.university_id || '');
+  const [universityName, setUniversityName] = useState(profile?.university_name || '');
+  
   const [faculty, setFaculty] = useState(profile?.faculty || '');
   const [course, setCourse] = useState(profile?.course || '');
   const [academicLevel, setAcademicLevel] = useState(profile?.year_of_study || '');
-  
+
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showUniModal, setShowUniModal] = useState(false);
   const [err, setErr] = useState('');
+
+  // Sync local state if the global profile changes (e.g., from modal)
+  useEffect(() => {
+    if (profile?.university_id) {
+      setUniversityId(profile.university_id);
+      setUniversityName(profile.university_name);
+    }
+  }, [profile?.university_id, profile?.university_name]);
 
   const pickAvatar = async () => {
     if (!profile?.id) {
@@ -47,7 +64,10 @@ export default function ProfileEnforcerScreen({ navigation }: any) {
   const handleSave = async () => {
     if (!profile?.id) return setErr('Profile is still loading. Please wait.');
     if (!avatarUrl) return setErr('Profile picture is required.');
-    if (!profile?.university_id) return setErr('Please select your university.');
+    if (!fullName.trim()) return setErr('Please enter your full name.');
+    if (!username.trim()) return setErr('Please enter a username.');
+    if (!admissionNumber.trim()) return setErr('Please enter your admission number.');
+    if (!universityId) return setErr('Please select your university.');
     if (!faculty) return setErr('Please select your faculty.');
     if (!course.trim()) return setErr('Please enter your course.');
     if (!academicLevel) return setErr('Please select your academic level.');
@@ -55,27 +75,58 @@ export default function ProfileEnforcerScreen({ navigation }: any) {
     setSaving(true);
     setErr('');
 
+    // Check if username is taken
+    const { data: existingUser } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('username', username.trim())
+      .neq('id', profile.id)
+      .maybeSingle();
+
+    if (existingUser) {
+      setSaving(false);
+      return setErr('This username is already taken. Please choose another.');
+    }
+
+    // Save directly to Supabase
     const { error } = await supabase.from('profiles').update({
       avatar_url: avatarUrl,
+      full_name: fullName.trim(),
+      username: username.trim(),
+      admission_number: admissionNumber.trim(),
+      phone_number: phoneNumber.trim() || null,
+      university_id: universityId,
+      university_name: universityName,
       faculty,
       course: course.trim(),
       year_of_study: academicLevel,
+      approval_status: 'approved', // Auto-approve for Google users
     }).eq('id', profile.id);
 
-    setSaving(false);
     if (error) {
+      setSaving(false);
       setErr(error.message);
     } else {
-      // Force update the local state immediately
+      // 1. Update local profile state immediately so the navigator sees the changes
       setProfile((prev: any) => ({
         ...prev,
         avatar_url: avatarUrl,
+        full_name: fullName.trim(),
+        username: username.trim(),
+        admission_number: admissionNumber.trim(),
+        phone_number: phoneNumber.trim() || null,
+        university_id: universityId,
+        university_name: universityName,
         faculty,
         course: course.trim(),
         year_of_study: academicLevel,
+        approval_status: 'approved',
       }));
-      // Then do a silent background reload to sync everything else
-      reloadProfile();
+
+      // 2. Force a silent reload from Supabase to guarantee the app is synced
+      await reloadProfile();
+      
+      setSaving(false);
     }
   };
 
@@ -83,7 +134,6 @@ export default function ProfileEnforcerScreen({ navigation }: any) {
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
       <ScrollView contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 20 }]}>
         
-        {/* LU PREMIUM HERO */}
         <View style={styles.hero}>
           <View style={styles.logoBox}>
             <Text style={styles.logoTextLU}>LU</Text>
@@ -94,12 +144,11 @@ export default function ProfileEnforcerScreen({ navigation }: any) {
 
         <Text style={styles.title}>COMPLETE YOUR PROFILE</Text>
         <Text style={styles.subtitle}>
-          To join the LU Connect community, you need a profile photo and your academic details. This ensures a safe, verified campus network.
+          Welcome to LU Connect. Please complete your profile to join your campus community.
         </Text>
 
         {err ? <Text style={styles.errorText}>{err}</Text> : null}
 
-        {/* AVATAR SECTION */}
         <View style={styles.avatarSection}>
           <TouchableOpacity onPress={pickAvatar} disabled={uploading} style={styles.avatarTap}>
             {avatarUrl ? (
@@ -114,26 +163,73 @@ export default function ProfileEnforcerScreen({ navigation }: any) {
           <Text style={styles.avatarLabel}>Tap to add profile picture</Text>
         </View>
 
-        {/* FORM FIELDS */}
         <View style={styles.formWrap}>
           
-          {/* University (Tappable) */}
+          <Text style={styles.label}>Full Name</Text>
+          <View style={styles.inputWrap}>
+            <Ionicons name="person-outline" size={20} color="#6d7382" style={{ marginRight: 12 }} />
+            <TextInput
+              style={styles.inputText}
+              placeholder="e.g. Samuel Mugasia"
+              placeholderTextColor="#6d7382"
+              value={fullName}
+              onChangeText={setFullName}
+            />
+          </View>
+
+          <Text style={styles.label}>Username</Text>
+          <View style={styles.inputWrap}>
+            <Ionicons name="at-outline" size={20} color="#6d7382" style={{ marginRight: 12 }} />
+            <TextInput
+              style={styles.inputText}
+              placeholder="e.g. sam_mugasia"
+              placeholderTextColor="#6d7382"
+              value={username}
+              onChangeText={setUsername}
+              autoCapitalize="none"
+            />
+          </View>
+
+          <Text style={styles.label}>Admission Number</Text>
+          <View style={styles.inputWrap}>
+            <Ionicons name="id-card-outline" size={20} color="#6d7382" style={{ marginRight: 12 }} />
+            <TextInput
+              style={styles.inputText}
+              placeholder="e.g. LBB/1234/2024"
+              placeholderTextColor="#6d7382"
+              value={admissionNumber}
+              onChangeText={setAdmissionNumber}
+              autoCapitalize="characters"
+            />
+          </View>
+
+          <Text style={styles.label}>Phone Number (Optional)</Text>
+          <View style={styles.inputWrap}>
+            <Ionicons name="call-outline" size={20} color="#6d7382" style={{ marginRight: 12 }} />
+            <TextInput
+              style={styles.inputText}
+              placeholder="e.g. 0712345678"
+              placeholderTextColor="#6d7382"
+              value={phoneNumber}
+              onChangeText={setPhoneNumber}
+              keyboardType="phone-pad"
+            />
+          </View>
+
           <Text style={styles.label}>University</Text>
           <TouchableOpacity style={styles.inputWrap} onPress={() => setShowUniModal(true)}>
             <Ionicons name="business-outline" size={20} color="#6d7382" style={{ marginRight: 12 }} />
-            <Text style={[styles.inputText, { color: profile?.university_name ? '#fff' : '#6d7382' }]}>
-              {profile?.university_name || 'Select university'}
+            <Text style={[styles.inputText, { color: universityName ? '#fff' : '#6d7382' }]}>
+              {universityName || 'Select university'}
             </Text>
           </TouchableOpacity>
 
-          {/* Faculty */}
           <Text style={styles.label}>Faculty / School</Text>
           <TouchableOpacity style={styles.inputWrap} onPress={() => navigation.navigate('FacultyPicker', { onSelect: (f: string) => setFaculty(f) })}>
             <Ionicons name="school-outline" size={20} color="#6d7382" style={{ marginRight: 12 }} />
             <Text style={[styles.inputText, { color: faculty ? '#fff' : '#6d7382' }]}>{faculty || 'Select faculty'}</Text>
           </TouchableOpacity>
 
-          {/* Course */}
           <Text style={styles.label}>Course</Text>
           <View style={styles.inputWrap}>
             <Ionicons name="book-outline" size={20} color="#6d7382" style={{ marginRight: 12 }} />
@@ -146,7 +242,6 @@ export default function ProfileEnforcerScreen({ navigation }: any) {
             />
           </View>
 
-          {/* Academic Level */}
           <Text style={styles.label}>Academic Level</Text>
           <TouchableOpacity style={styles.inputWrap} onPress={() => navigation.navigate('AcademicLevelPicker', { onSelect: (l: string) => setAcademicLevel(l) })}>
             <Ionicons name="calendar-outline" size={20} color="#6d7382" style={{ marginRight: 12 }} />
@@ -164,13 +259,15 @@ export default function ProfileEnforcerScreen({ navigation }: any) {
         </TouchableOpacity>
 
       </ScrollView>
-          <Modal visible={showUniModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowUniModal(false)}>
-        <UniversityPickerScreen 
-          onSelect={(item: any) => { 
-            setProfile((prev: any) => ({ ...prev, university_id: item.id, university_name: item.name })); 
-            setShowUniModal(false); 
-          }} 
-          onClose={() => setShowUniModal(false)} 
+      <Modal visible={showUniModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowUniModal(false)}>
+        <UniversityPickerScreen
+          onSelect={(item: any) => {
+            // Set local state instead of global profile state
+            setUniversityId(item.id);
+            setUniversityName(item.name);
+            setShowUniModal(false);
+          }}
+          onClose={() => setShowUniModal(false)}
         />
       </Modal>
     </KeyboardAvoidingView>
@@ -180,28 +277,23 @@ export default function ProfileEnforcerScreen({ navigation }: any) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
   scroll: { flexGrow: 1, paddingHorizontal: 24, paddingBottom: 40 },
-  
   hero: { alignItems: 'center', marginBottom: 16 },
   logoBox: { width: 80, height: 80, borderRadius: 22, borderWidth: 3, borderColor: '#ef4444', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0a0a0a', marginBottom: 10 },
   logoTextLU: { color: '#fff', fontSize: 32, fontWeight: '900', letterSpacing: -1 },
   logoTextConnect: { color: '#ef4444', fontSize: 14, fontWeight: '800', letterSpacing: 3 },
   divider: { height: 1, backgroundColor: '#1f1f1f', marginBottom: 24 },
-
   title: { color: '#fff', fontSize: 20, fontWeight: '900', letterSpacing: 1.5, textAlign: 'center', marginBottom: 10 },
   subtitle: { color: '#6d7382', fontSize: 13, textAlign: 'center', lineHeight: 20, marginBottom: 24 },
   errorText: { color: '#ef4444', textAlign: 'center', fontSize: 13, fontWeight: '600', marginBottom: 10 },
-
   avatarSection: { alignItems: 'center', marginBottom: 20 },
   avatarTap: { width: 100, height: 100, borderRadius: 50, borderWidth: 2, borderColor: '#ef4444', borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(239,68,68,0.05)' },
   avatar: { width: 100, height: 100, borderRadius: 50 },
   avatarPlaceholder: { alignItems: 'center', justifyContent: 'center' },
   avatarLabel: { color: '#ef4444', fontSize: 12, marginTop: 10, fontWeight: '700' },
-
   formWrap: { marginTop: 10 },
   label: { color: '#6d7382', fontSize: 12, fontWeight: '700', marginBottom: 6, marginTop: 16, marginLeft: 4 },
   inputWrap: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0a0a0a', borderRadius: 12, borderWidth: 1, borderColor: '#1f1f1f', paddingHorizontal: 14 },
   inputText: { flex: 1, color: '#fff', fontSize: 15, paddingVertical: 14 },
-  
   primaryBtn: { backgroundColor: '#ef4444', padding: 16, borderRadius: 14, alignItems: 'center', marginTop: 30 },
   primaryBtnText: { color: '#fff', fontSize: 14, fontWeight: '800', letterSpacing: 1.5 },
 });
