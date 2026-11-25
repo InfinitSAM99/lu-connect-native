@@ -82,6 +82,7 @@ import ProfessionalModeScreen from '../screens/ProfessionalModeScreen';
 import ProfessionalDashboardScreen from '../screens/ProfessionalDashboardScreen';
 import SubscriptionScreen from '../screens/SubscriptionScreen';
 import AnnouncementsScreen from '../screens/AnnouncementsScreen';
+import AnnouncementDetailScreen from '../screens/AnnouncementDetailScreen';
 import PostDetailScreen from '../screens/PostDetailScreen';
 import ReplyThreadScreen from '../screens/ReplyThreadScreen';
 
@@ -247,6 +248,7 @@ export default function AppNavigator() {
             <Stack.Screen name="Video" component={withLayout(VideoScreen)} />
             <Stack.Screen name="UploadReel" component={withLayout(UploadReelScreen)} />
             <Stack.Screen name="Announcements" component={withLayout(AnnouncementsScreen)} />
+            <Stack.Screen name="AnnouncementDetail" component={AnnouncementDetailScreen} />
             <Stack.Screen name="AcademicHub" component={withLayout(AcademicHubScreen)} />
             <Stack.Screen name="AcademicViewer" component={AcademicViewerScreen} />
             

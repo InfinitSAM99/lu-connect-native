@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, ActivityIndicator } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { View, Text, StyleSheet, ScrollView, Switch, ActivityIndicator } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useAudioPlayer } from 'expo-audio';
 import TopBar from '../components/TopBar';
 
 const PREF_KEYS = {
@@ -13,13 +12,15 @@ const PREF_KEYS = {
 };
 
 export default function PreferencesScreen({ navigation }: any) {
-  const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
-  
   const [haptics, setHaptics] = useState(true);
   const [sounds, setSounds] = useState(true);
   const [inAppNotifs, setInAppNotifs] = useState(true);
   const [quickAlerts, setQuickAlerts] = useState(true);
+
+  // Load audio players
+  const samsungSound = useAudioPlayer(require('../../assets/sounds/samsung.mp3'));
+  const tapSound = useAudioPlayer(require('../../assets/sounds/like.mp3'));
 
   useEffect(() => {
     (async () => {
@@ -32,15 +33,35 @@ export default function PreferencesScreen({ navigation }: any) {
       if (s !== null) setSounds(s === 'true');
       if (n !== null) setInAppNotifs(n === 'true');
       if (q !== null) setQuickAlerts(q === 'true');
-      
+
       setLoading(false);
     })();
   }, []);
 
-  const toggle = async (key: string, value: boolean, setter: any) => {
+  const toggle = async (key: string, value: boolean, setter: any, soundToPlay?: any) => {
     setter(value);
     await AsyncStorage.setItem(key, value.toString());
+    
+    // Play sound if turning ON and a sound is provided
+    if (value && soundToPlay) {
+      try {
+        soundToPlay.seekTo(0);
+        soundToPlay.play();
+      } catch (e) {
+        console.log("Audio error:", e);
+      }
+    }
   };
+
+  const renderSwitch = (value: boolean, onValueChange: (v: boolean) => void) => (
+    <Switch
+      value={value}
+      onValueChange={onValueChange}
+      trackColor={{ false: '#2a2a2a', true: '#ef4444' }}
+      thumbColor={'#fff'}
+      ios_backgroundColor="#2a2a2a"
+    />
+  );
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
@@ -50,14 +71,14 @@ export default function PreferencesScreen({ navigation }: any) {
         subtitle="Control how the app interacts with you"
         showBack={true}
         onBack={() => navigation.goBack()}
-        rightComponent={<Ionicons name="color-palette" size={48} color="#ef4444" style={{ marginTop: 4 }} />}
       />
 
       {loading ? (
         <ActivityIndicator size="large" color="#ef4444" style={{ marginTop: 40 }} />
       ) : (
-        <ScrollView contentContainerStyle={{ paddingBottom: 100 }}>
-          
+        <ScrollView contentContainerStyle={{ paddingBottom: 100, paddingTop: 10 }} showsVerticalScrollIndicator={false}>
+
+          {/* INTERACTIONS SECTION */}
           <Text style={styles.sectionHeader}>INTERACTIONS</Text>
           
           <View style={styles.row}>
@@ -65,12 +86,7 @@ export default function PreferencesScreen({ navigation }: any) {
               <Text style={styles.rowTitle}>Vibrate on tap</Text>
               <Text style={styles.rowSub}>Haptic feedback on interactions</Text>
             </View>
-            <Switch
-              value={haptics}
-              onValueChange={(v) => toggle(PREF_KEYS.haptics, v, setHaptics)}
-              trackColor={{ false: '#1f1f1f', true: 'rgba(239,68,68,0.5)' }}
-              thumbColor={haptics ? '#ef4444' : '#6d7382'}
-            />
+            {renderSwitch(haptics, (v) => toggle(PREF_KEYS.haptics, v, setHaptics, tapSound))}
           </View>
 
           <View style={styles.divider} />
@@ -80,29 +96,18 @@ export default function PreferencesScreen({ navigation }: any) {
               <Text style={styles.rowTitle}>Notification sounds</Text>
               <Text style={styles.rowSub}>Play a chime when a notification arrives</Text>
             </View>
-            <Switch
-              value={sounds}
-              onValueChange={(v) => toggle(PREF_KEYS.sounds, v, setSounds)}
-              trackColor={{ false: '#1f1f1f', true: 'rgba(239,68,68,0.5)' }}
-              thumbColor={sounds ? '#ef4444' : '#6d7382'}
-            />
+            {renderSwitch(sounds, (v) => toggle(PREF_KEYS.sounds, v, setSounds, samsungSound))}
           </View>
 
-          <View style={styles.divider} />
-
+          {/* NOTIFICATIONS SECTION */}
           <Text style={styles.sectionHeader}>NOTIFICATIONS</Text>
-
+          
           <View style={styles.row}>
             <View style={styles.rowText}>
               <Text style={styles.rowTitle}>In-app notifications</Text>
               <Text style={styles.rowSub}>Show a banner when something happens</Text>
             </View>
-            <Switch
-              value={inAppNotifs}
-              onValueChange={(v) => toggle(PREF_KEYS.inAppNotifs, v, setInAppNotifs)}
-              trackColor={{ false: '#1f1f1f', true: 'rgba(239,68,68,0.5)' }}
-              thumbColor={inAppNotifs ? '#ef4444' : '#6d7382'}
-            />
+            {renderSwitch(inAppNotifs, (v) => toggle(PREF_KEYS.inAppNotifs, v, setInAppNotifs))}
           </View>
 
           <View style={styles.divider} />
@@ -112,15 +117,11 @@ export default function PreferencesScreen({ navigation }: any) {
               <Text style={styles.rowTitle}>Quick alerts</Text>
               <Text style={styles.rowSub}>Show the floating bubble for new messages</Text>
             </View>
-            <Switch
-              value={quickAlerts}
-              onValueChange={(v) => toggle(PREF_KEYS.quickAlerts, v, setQuickAlerts)}
-              trackColor={{ false: '#1f1f1f', true: 'rgba(239,68,68,0.5)' }}
-              thumbColor={quickAlerts ? '#ef4444' : '#6d7382'}
-            />
+            {renderSwitch(quickAlerts, (v) => toggle(PREF_KEYS.quickAlerts, v, setQuickAlerts))}
           </View>
-
+          
           <View style={styles.divider} />
+
         </ScrollView>
       )}
     </View>
@@ -129,15 +130,15 @@ export default function PreferencesScreen({ navigation }: any) {
 
 const styles = StyleSheet.create({
   sectionHeader: {
-    color: '#6d7382', fontSize: 11, fontWeight: '800', letterSpacing: 2,
-    paddingHorizontal: 16, paddingTop: 24, paddingBottom: 12,
+    color: '#6d7382', fontSize: 11, fontWeight: '800', letterSpacing: 1.5,
+    marginTop: 32, marginBottom: 12, paddingHorizontal: 24, 
   },
   row: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingVertical: 16,
+    paddingHorizontal: 24, paddingVertical: 20, 
   },
   rowText: { flex: 1, paddingRight: 16 },
-  rowTitle: { color: '#fff', fontSize: 16, fontWeight: '500', marginBottom: 4 },
-  rowSub: { color: '#6d7382', fontSize: 13 },
-  divider: { height: 1, backgroundColor: '#1f1f1f', marginHorizontal: 16 },
+  rowTitle: { color: '#fff', fontSize: 16, fontWeight: '600', marginBottom: 4 },
+  rowSub: { color: '#6d7382', fontSize: 13, lineHeight: 18 },
+  divider: { height: 1, backgroundColor: '#1f1f1f', marginHorizontal: 24 },
 });
