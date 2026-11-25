@@ -1,91 +1,58 @@
 const fs = require("fs");
 const path = require("path");
 
-function patchServiceKotlin(src) {
-  let out = src;
-
-  if (!out.includes("EXTRA_TOPIC_URL")) {
-    out = out.replace(
-      /var topicUrl: String = BuildConfig\.[A-Z0-9_]+/,
-      `const val EXTRA_TOPIC_URL = "topic_url"
-        private const val PREFS_NAME = "lu_connect_ntfy_prefs"
-        private const val KEY_TOPIC_URL = "topic_url"
-        var topicUrl: String = BuildConfig.NTFY_TOPIC_URL
-
-        fun loadSavedTopic(context: Context): String {
-            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            val saved = prefs.getString(KEY_TOPIC_URL, null)
-            val resolved = if (!saved.isNullOrBlank()) saved else BuildConfig.NTFY_TOPIC_URL
-            topicUrl = resolved
-            return resolved
-        }
-
-        fun saveAndApplyTopic(context: Context, newUrl: String) {
-            val trimmed = newUrl.trim()
-            val finalUrl = if (trimmed.isNotEmpty()) trimmed else BuildConfig.NTFY_TOPIC_URL
-            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
-                .putString(KEY_TOPIC_URL, finalUrl)
-                .apply()
-            topicUrl = finalUrl
-            val intent = Intent(context, NtfyService::class.java).apply {
-                putExtra(EXTRA_TOPIC_URL, finalUrl)
-            }
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(intent)
-                } else {
-                    context.startService(intent)
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "apply topic failed: " + e.message)
-            }
-        }`
-    );
+function findFileRecursive(dir, filename) {
+  if (!fs.existsSync(dir)) return null;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      const found = findFileRecursive(full, filename);
+      if (found) return found;
+    } else if (entry.name === filename) {
+      return full;
+    }
   }
+  return null;
+}
 
-  if (!out.includes("loadSavedTopic(this)")) {
-    out = out.replace("createChannels()", "loadSavedTopic(this)\n        createChannels()");
-  }
+function getModuleKotlin(pkg) {
+  return `package ${pkg}
 
-  if (!out.includes("val incoming = intent?.getStringExtra(EXTRA_TOPIC_URL)")) {
-    out = out.replace(
-      "override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY",
-      `override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val incoming = intent?.getStringExtra(EXTRA_TOPIC_URL)
-        if (!incoming.isNullOrBlank() && incoming != topicUrl) {
-            topicUrl = incoming
-            try { ws?.close(1000, "topic changed") } catch (_: Exception) {}
-            connect()
-        }
-        return START_STICKY
-    }`
-    );
-  }
+import android.content.Context
+import com.facebook.react.bridge.NativeModule
+import com.facebook.react.bridge.ReactApplicationContext
+import com.facebook.react.bridge.ReactContextBaseJavaModule
+import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.module.model.ReactModuleInfo
+import com.facebook.react.module.model.ReactModuleInfoProvider
 
-  if (!out.includes("class LuConnectNtfyModule")) {
-    out += `
-class LuConnectNtfyModule(reactContext: com.facebook.react.bridge.ReactApplicationContext) :
-    com.facebook.react.bridge.ReactContextBaseJavaModule(reactContext) {
+class LuConnectNtfyModule(reactContext: ReactApplicationContext) :
+    ReactContextBaseJavaModule(reactContext) {
+
     override fun getName(): String = "LuConnectNtfy"
 
-    @com.facebook.react.bridge.ReactMethod
+    @ReactMethod
     fun setTopicUrl(url: String) {
-        NtfyService.saveAndApplyTopic(reactApplicationContext, url)
+        val trimmed = url.trim()
+        reactApplicationContext
+            .getSharedPreferences("lu_connect_ntfy_prefs", Context.MODE_PRIVATE)
+            .edit()
+            .putString("topic_url", trimmed)
+            .apply()
     }
 }
 
 class LuConnectNtfyPackage : com.facebook.react.BaseReactPackage() {
     override fun getModule(
         name: String,
-        reactContext: com.facebook.react.bridge.ReactApplicationContext
-    ): com.facebook.react.bridge.NativeModule? =
+        reactContext: ReactApplicationContext
+    ): NativeModule? =
         if (name == "LuConnectNtfy") LuConnectNtfyModule(reactContext) else null
 
-    override fun getReactModuleInfoProvider(): com.facebook.react.module.model.ReactModuleInfoProvider =
-        com.facebook.react.module.model.ReactModuleInfoProvider {
+    override fun getReactModuleInfoProvider(): ReactModuleInfoProvider =
+        ReactModuleInfoProvider {
             mapOf(
-                "LuConnectNtfy" to com.facebook.react.module.model.ReactModuleInfo(
+                "LuConnectNtfy" to ReactModuleInfo(
                     "LuConnectNtfy",
                     "LuConnectNtfy",
                     false,
@@ -97,9 +64,6 @@ class LuConnectNtfyPackage : com.facebook.react.BaseReactPackage() {
         }
 }
 `;
-  }
-
-  return out;
 }
 
 function patchMainApplication(src) {
@@ -126,15 +90,13 @@ module.exports = function withPerUserNtfy(config) {
     (cfg) => {
       const root = cfg.modRequest.platformProjectRoot;
       const pkg = (cfg.android && cfg.android.package) || "com.infinitsam.luconnectnative";
-      const dir = path.join(root, "app/src/main/java", ...pkg.split("."));
+      const pkgDir = path.join(root, "app/src/main/java", ...pkg.split("."));
+      fs.mkdirSync(pkgDir, { recursive: true });
 
-      const serviceFile = path.join(dir, "NtfyService.kt");
-      if (fs.existsSync(serviceFile)) {
-        fs.writeFileSync(serviceFile, patchServiceKotlin(fs.readFileSync(serviceFile, "utf8")));
-      }
+      fs.writeFileSync(path.join(pkgDir, "LuConnectNtfyModule.kt"), getModuleKotlin(pkg));
 
-      const mainApp = path.join(dir, "MainApplication.kt");
-      if (fs.existsSync(mainApp)) {
+      const mainApp = findFileRecursive(path.join(root, "app/src/main"), "MainApplication.kt");
+      if (mainApp) {
         fs.writeFileSync(mainApp, patchMainApplication(fs.readFileSync(mainApp, "utf8")));
       }
       return cfg;
