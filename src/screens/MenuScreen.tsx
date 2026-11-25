@@ -31,10 +31,8 @@ const SECTIONS = [
   {
     title: 'Professional',
     items: [
-      { id: 'ProfessionalMode', label: 'Professional Mode', icon: 'rocket', color: '#a855f7', desc: 'Elevate your profile' },
-      { id: 'ProfessionalDashboard', label: 'Professional Dashboard', icon: 'bar-chart', color: '#f59e0b', desc: 'See your analytics' },
-      { id: 'GetVerified', label: 'Get Verified', icon: 'shield-checkmark', color: '#06b6d4', desc: 'Verify your identity faster' },
-      { id: 'GetBoosted', label: 'Get Boosted', icon: 'flame', color: '#ec4899', desc: 'Boost your profile visibility' },
+      // ONLY ONE BUTTON HERE NOW
+      { id: 'ProfessionalMode', label: 'Professional Mode', icon: 'rocket', color: '#a855f7', desc: 'Creator tools & analytics' },
     ],
   },
   {
@@ -59,83 +57,41 @@ export default function MenuScreen({ navigation }: any) {
   const { profile } = useAuth();
 
   const handlePress = (item: any) => {
-    if (item.id === 'Profile') {
-      navigation.navigate('Profile', { id: profile?.id });
-    } else if (item.params) {
-      navigation.navigate(item.id, item.params);
-    } else {
-      navigation.navigate(item.id);
-    }
+    if (item.id === 'Profile') navigation.navigate('Profile', { id: profile?.id });
+    else navigation.navigate(item.id);
   };
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
-      <TopBar
-        hero
-        title="Menu"
-        subtitle="Everything LU CONNECT has to offer"
-        showBack={true}
-        onBack={() => navigation.goBack()}
-        rightComponent={<Ionicons name="menu" size={48} color="#ef4444" style={{ marginTop: 4 }} />}
-      />
+      <TopBar hero title="Menu" subtitle="Everything LU CONNECT has to offer" showBack={true} onBack={() => navigation.goBack()} rightComponent={<Ionicons name="menu" size={48} color="#ef4444" style={{ marginTop: 4 }} />} />
 
-      <ScrollView
-        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 20, paddingBottom: 100 + insets.bottom }}
-        showsVerticalScrollIndicator={false}
-      >
+      <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 20, paddingBottom: 100 + insets.bottom }} showsVerticalScrollIndicator={false}>
         {/* PROFILE HERO */}
-        <TouchableOpacity
-          onPress={() => navigation.navigate('Profile', { id: profile?.id })}
-          style={styles.profileSection}
-          activeOpacity={0.7}
-        >
-          <PremiumAvatar
-            avatarUrl={profile?.avatar_url}
-            fullName={profile?.full_name}
-            tier={profile?.subscription_tier || 'free'}
-            size={72}
-          />
+        <TouchableOpacity onPress={() => navigation.navigate('Profile', { id: profile?.id })} style={styles.profileSection} activeOpacity={0.7}>
+          <PremiumAvatar avatarUrl={profile?.avatar_url} fullName={profile?.full_name} tier={profile?.subscription_tier || 'free'} size={72} />
           <View style={{ flex: 1, marginLeft: 16 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Text style={{ color: '#fff', fontSize: 22, fontWeight: '800' }}>{profile?.full_name || 'User'}</Text>
               <PremiumDiamond tier={profile?.subscription_tier || 'free'} />
             </View>
             <Text style={{ color: '#6d7382', fontSize: 14, marginTop: 2 }}>{profile?.university_name || 'Student'}</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
-              <Ionicons name="notifications" size={14} color="#ef4444" />
-              <Text style={{ color: '#ef4444', fontSize: 13, fontWeight: '600' }}>1 new notification</Text>
-            </View>
           </View>
           <Ionicons name="chevron-forward" size={22} color="#6d7382" />
         </TouchableOpacity>
 
         {/* HALL OF FAME */}
-        <TouchableOpacity
-          style={styles.hallOfFame}
-          onPress={() => navigation.navigate('HallOfFame')}
-          activeOpacity={0.8}
-        >
+        <TouchableOpacity style={styles.hallOfFame} onPress={() => navigation.navigate('HallOfFame')} activeOpacity={0.8}>
           <Ionicons name="trophy" size={32} color="#f59e0b" />
           <View style={{ flex: 1, marginLeft: 14 }}>
             <Text style={{ color: '#f59e0b', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>THE LURIES 2026</Text>
             <Text style={{ color: '#fff', fontSize: 18, fontWeight: '800', marginTop: 2 }}>Hall of Fame</Text>
-            <Text style={{ color: '#6d7382', fontSize: 13, marginTop: 2 }}>See the top students of the year</Text>
           </View>
           <Ionicons name="chevron-forward" size={22} color="#6d7382" />
         </TouchableOpacity>
 
         {/* LU PRO BANNER */}
-        <TouchableOpacity
-          style={styles.luProBanner}
-          activeOpacity={0.8}
-          onPress={() => navigation.navigate('SubscriptionScreen')}
-        >
-          <LinearGradient
-            colors={['rgba(255,215,0,0.15)', 'rgba(20,20,20,1)']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.luProGradient}
-          >
+        <TouchableOpacity style={styles.luProBanner} activeOpacity={0.8} onPress={() => navigation.navigate('SubscriptionScreen')}>
+          <LinearGradient colors={['rgba(255,215,0,0.15)', 'rgba(20,20,20,1)']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.luProGradient}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
               <View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -144,12 +100,7 @@ export default function MenuScreen({ navigation }: any) {
                 </View>
                 <Text style={styles.luProDesc}>Unlock custom icons, themes & more.</Text>
               </View>
-              <LinearGradient
-                colors={['#FFDF00', '#D4AF37']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.luProBtn}
-              >
+              <LinearGradient colors={['#FFDF00', '#D4AF37']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.luProBtn}>
                 <Text style={styles.luProBtnText}>Upgrade</Text>
               </LinearGradient>
             </View>
@@ -161,12 +112,7 @@ export default function MenuScreen({ navigation }: any) {
           <View key={section.title} style={{ marginTop: 32 }}>
             <Text style={styles.sectionHeader}>{section.title.toUpperCase()}</Text>
             {section.items.map((item) => (
-              <TouchableOpacity
-                key={item.id}
-                style={styles.menuItem}
-                onPress={() => handlePress(item)}
-                activeOpacity={0.7}
-              >
+              <TouchableOpacity key={item.id} style={styles.menuItem} onPress={() => handlePress(item)} activeOpacity={0.7}>
                 <View style={[styles.iconWrap, { backgroundColor: `${item.color}15` }]}>
                   <Ionicons name={item.icon as any} size={22} color={item.color} />
                 </View>
