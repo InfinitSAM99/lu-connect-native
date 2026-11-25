@@ -4,7 +4,7 @@ import * as Application from 'expo-application';
 import { supabase } from '../lib/supabase';
 import ForceUpdateScreen from '../screens/ForceUpdateScreen';
 import MaintenanceScreen from '../screens/MaintenanceScreen';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity, Linking } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { navigationRef } from './navigationRef';
@@ -123,8 +123,8 @@ export default function AppNavigator() {
   const [forceLoad, setForceLoad] = useState(false);
   
   // Update State
-  const [needsUpdate, setNeedsUpdate] = useState(false);
-  const [updateInfo, setUpdateInfo] = useState({ url: '', version: '' });
+  const [forceUpdateRequired, setForceUpdateRequired] = useState(false);
+  const [optionalBanner, setOptionalBanner] = useState<{ visible: boolean; version: string; url: string }>({ visible: false, version: '', url: 'https://lu-connect-website-sigma.vercel.app/download' });
   const [isMaintenance, setIsMaintenance] = useState(false);
   const [maintenanceMsg, setMaintenanceMsg] = useState('');
 
@@ -142,11 +142,17 @@ export default function AppNavigator() {
           const currentVersion = Application.nativeApplicationVersion || '1.0.0';
           console.log("Current Version:", currentVersion, "DB Version:", data.latest_version);
           
-          // Trigger if versions are different OR force_update is explicitly true
+          const targetUrl = (data.apk_url && String(data.apk_url).trim()) || 'https://lu-connect-website-sigma.vercel.app/download';
+          const latestVer = typeof data.latest_version === 'string' ? data.latest_version.trim() : '';
+          const hasNewerVersion = latestVer !== '' && latestVer !== currentVersion.trim();
+
           if (data.force_update === true) {
-            console.log("FORCE UPDATE TRIGGERED!");
-            setNeedsUpdate(true);
-            setUpdateInfo({ url: data.apk_url, version: data.latest_version });
+            console.log('FORCE UPDATE TRIGGERED!');
+            setForceUpdateRequired(true);
+            setOptionalBanner({ visible: false, version: latestVer, url: targetUrl });
+          } else if (hasNewerVersion) {
+            console.log('OPTIONAL UPDATE BANNER SHOWN!');
+            setOptionalBanner({ visible: true, version: latestVer, url: targetUrl });
           }
         }
       } catch (e) {
@@ -182,6 +188,25 @@ export default function AppNavigator() {
   if (deviceBanned) {
     return (
       <NavigationContainer ref={navigationRef}>
+      {optionalBanner.visible && (
+        <View style={{ backgroundColor: '#1e3a8a', paddingHorizontal: 14, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <Text style={{ color: '#fff', fontSize: 12, fontWeight: '600', flex: 1 }}>
+            Update {optionalBanner.version} available
+          </Text>
+          <TouchableOpacity
+            onPress={() => Linking.openURL(optionalBanner.url).catch(() => {})}
+            style={{ backgroundColor: '#3b82f6', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}
+          >
+            <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>Get</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setOptionalBanner((prev) => ({ ...prev, visible: false }))}
+            style={{ paddingHorizontal: 6, paddingVertical: 4 }}
+          >
+            <Text style={{ color: '#cbd5e1', fontSize: 12, fontWeight: '700' }}>Dismiss</Text>
+          </TouchableOpacity>
+        </View>
+      )}
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           <Stack.Screen name="DeviceBanned" component={require('../screens/DeviceBannedScreen').default} />
           <Stack.Screen name="ContactAdmin" component={ContactAdminScreen} />
@@ -207,12 +232,6 @@ export default function AppNavigator() {
   if (isMaintenance) {
     return <MaintenanceScreen message={maintenanceMsg} onRetry={() => setIsMaintenance(false)} />;
   }
-
-  // FORCE UPDATE CHECK
-  if (needsUpdate) {
-    return <ForceUpdateScreen apkUrl={updateInfo.url} version={updateInfo.version} />;
-  }
-
   // 3. Main Navigation
   return (
     <NavigationContainer ref={navigationRef}>

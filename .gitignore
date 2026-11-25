@@ -1,11 +1,13 @@
-.env
-node_modules
-
-.env
-service-account.json
-google-services.json
-
-# Expo
+node_modules/
 .expo/
-.expo/
+android/
+ios/
 .env.local
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+web-build/
+dist/

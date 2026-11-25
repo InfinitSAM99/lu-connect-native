@@ -1,0 +1,11 @@
+name: Build Android Preview
+
+jobs:
+  build_android:
+    name: Build Android Preview APK
+    type: build
+    env:
+      EAS_SKIP_AUTO_FINGERPRINT: "1"
+    params:
+      platform: android
+      profile: preview

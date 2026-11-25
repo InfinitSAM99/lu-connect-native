@@ -8,6 +8,7 @@
   "dependencies": {
     "@config-plugins/react-native-webrtc": "~15.0.2",
     "@dariyd/react-native-pdf-page-image": "^2.1.0",
+    "@drkostas/expo-ntfy": "^0.1.1",
     "@expo/metro-runtime": "~58.0.16",
     "@expo/ui": "~58.0.29",
     "@expo/vector-icons": "^15.0.2",
@@ -25,7 +26,7 @@
     "@react-navigation/native-stack": "^7.21.0",
     "@shopify/flash-list": "2.3.2",
     "@supabase/server": "^1.9.2",
-    "@supabase/supabase-js": "^2.118.0",
+    "@supabase/supabase-js": "^2.119.2",
     "@tanstack/react-query": "^5.104.5",
     "@upstash/redis": "^1.41.0",
     "base64-arraybuffer": "^1.0.2",

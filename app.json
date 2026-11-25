@@ -26,7 +26,11 @@
         "POST_NOTIFICATIONS",
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",
-        "WAKE_LOCK"
+        "WAKE_LOCK",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ],
       "versionCode": 2
     },
@@ -57,6 +61,12 @@
             "extraProguardRules": "-keep class livekit.org.jni_zero.** { *; }\n-dontwarn livekit.org.jni_zero.**\n-dontwarn livekit.org.webrtc.**\n-dontwarn io.livekit.**"
           }
         }
+      ],
+      [
+        "@drkostas/expo-ntfy",
+        {
+          "url": "https://ntfy.sh/lu-connect-students-9f4k2"
+        }
       ]
     ],
     "experiments": {
@@ -64,7 +74,7 @@
     },
     "extra": {
       "eas": {
-        "projectId": "0c999e89-770d-4e66-b002-bf398b0a3b87"
+        "projectId": "e2d3d3d4-3e55-4b5b-8dec-5aac16439cbf"
       }
     },
     "runtimeVersion": {
@@ -72,6 +82,7 @@
     },
     "updates": {
       "url": "https://u.expo.dev/0c999e89-770d-4e66-b002-bf398b0a3b87"
-    }
+    },
+    "owner": "finite-company"
   }
 }

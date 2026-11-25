@@ -22,6 +22,10 @@
     ".expo",
     "node_modules",
     "android",
-    "ios"
+    "ios",
+    "backup_nov13",
+    "supabase/functions",
+    "push-test",
+    "scripts"
   ]
 }
