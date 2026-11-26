@@ -78,6 +78,7 @@ import GetVerifiedScreen from '../screens/GetVerifiedScreen';
 import GetBoostedScreen from '../screens/GetBoostedScreen';
 import AccountsCenterScreen from '../screens/AccountsCenterScreen';
 import PreferencesScreen from '../screens/PreferencesScreen';
+import NavigationStyleScreen from '../screens/NavigationStyleScreen';
 import ProfessionalModeScreen from '../screens/ProfessionalModeScreen';
 import ProfessionalDashboardScreen from '../screens/ProfessionalDashboardScreen';
 import SubscriptionScreen from '../screens/SubscriptionScreen';
@@ -270,6 +271,7 @@ export default function AppNavigator() {
             <Stack.Screen name="AccountsCenter" component={AccountsCenterScreen} />
             <Stack.Screen name="AccountSettings" component={withLayout(AccountSettingsScreen)} />
             <Stack.Screen name="Preferences" component={withLayout(PreferencesScreen)} />
+            <Stack.Screen name="NavigationStyle" component={NavigationStyleScreen} />
             <Stack.Screen name="ProfileEdit" component={ProfileEditScreen} />
             <Stack.Screen name="ProfessionalMode" component={withLayout(ProfessionalModeScreen)} />
             <Stack.Screen name="ProfessionalDashboard" component={withLayout(ProfessionalDashboardScreen)} />

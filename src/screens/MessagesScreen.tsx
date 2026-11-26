@@ -12,6 +12,7 @@ import FastButton from '../components/FastButton';
 import AppButton from '../components/AppButton';
 import { formatDistanceToNow, format, isToday, isYesterday } from 'date-fns';
 import { FlashList } from '@shopify/flash-list';
+import TopNav from '../components/TopNav';
 
 const ONLINE_WINDOW_MS = 60 * 1000;
 function isRecent(date: string | null) {
@@ -99,7 +100,7 @@ function formatChatTime(dateStr: string) {
 }
 
 export default function MessagesScreen({ navigation }: any) {
-  const { profile } = useAuth();
+  const { profile, navType } = useAuth();
   const myId = profile?.id;
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
@@ -196,7 +197,7 @@ export default function MessagesScreen({ navigation }: any) {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: insets.top + 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#1f1f1f' }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: insets.top + 12, paddingBottom: 12, borderBottomWidth: 0 }}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 4, marginRight: 8 }}>
           <Ionicons name="chevron-back" size={26} color="#fff" />
         </TouchableOpacity>
@@ -205,6 +206,8 @@ export default function MessagesScreen({ navigation }: any) {
           <Ionicons name="search" size={22} color="#fff" />
         </TouchableOpacity>
       </View>
+
+      {navType === 'top' && <TopNav activeRoute="Messages" />}
 
       {searchMode && (
         <View style={{ paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#1f1f1f' }}>

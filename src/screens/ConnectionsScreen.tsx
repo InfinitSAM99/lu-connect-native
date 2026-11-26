@@ -3,6 +3,8 @@ import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Image, ActivityIn
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import TopNav from '../components/TopNav';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import TopBar from '../components/TopBar';
@@ -71,7 +73,9 @@ async function loadSuggestions(profileId: string, myProfile?: any) {
 }
 
 export default function ConnectionsScreen({ navigation }: any) {
-  const { profile } = useAuth();
+  
+
+  const { profile, navType } = useAuth();
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
   const myId = profile?.id || null;
@@ -187,8 +191,10 @@ export default function ConnectionsScreen({ navigation }: any) {
         } 
       />
 
+      {navType === 'top' && <TopNav activeRoute="Connections" />}
+
       {/* TABS */}
-      <View style={styles.tabsContainer}>
+      <View style={[styles.tabsContainer]}>
         {tabs.map((t) => (
           <TouchableOpacity key={t.key} onPress={() => setTab(t.key)} style={styles.tabBtn}>
             <Text style={[styles.tabText, tab === t.key && styles.tabTextActive]}>

@@ -17,6 +17,8 @@ import CommentDrawer from '../components/CommentDrawer';
 import { FlashList } from '@shopify/flash-list';
 import LULogo from '../components/LULogo';
 import FastButton from '../components/FastButton';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import TopNav from '../components/TopNav';
 
 const FEED_DAYS = 30;
 const POOL_SIZE = 150;
@@ -173,7 +175,9 @@ const SkeletonPost = () => (
 );
 
 export default function FeedScreen({ navigation, route }: any) {
-  const { profile, reloadProfile } = useAuth();
+  
+
+  const { profile, reloadProfile, navType } = useAuth();
 
   useEffect(() => {
     if (profile && profile.approval_status === 'approved') {
@@ -393,7 +397,7 @@ export default function FeedScreen({ navigation, route }: any) {
     <View style={{ flex: 1, backgroundColor: '#000', position: 'relative' }}>
 
       {/* HEADER */}
-      <View style={[styles.stickyHeader, { paddingTop: Math.max(insets.top, 12) }]}>
+      <View style={[styles.stickyHeader, { paddingTop: Math.max(insets.top, 12), borderBottomWidth: 0, marginBottom: 0 }]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <LULogo size={36} animate={false} />
           <Text style={styles.brandText}>LU CONNECT</Text>
@@ -413,8 +417,10 @@ export default function FeedScreen({ navigation, route }: any) {
         </View>
       </View>
 
+      {navType === 'top' && <TopNav activeRoute="Feed" />}
+
       {/* FILTER BAR */}
-      <View style={{ borderBottomWidth: 1, borderBottomColor: '#1f1f1f', backgroundColor: '#000' }}>
+      <View style={{ backgroundColor: '#000' }}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 10, gap: 8 }}>
           <FastButton style={[styles.filterPill, filterUniversity === 'mine' && styles.filterPillActive]} onPress={selectMine}>
             <Text style={[styles.filterText, filterUniversity === 'mine' && styles.filterTextActive]}>
@@ -440,13 +446,7 @@ export default function FeedScreen({ navigation, route }: any) {
 
 
       {/* TOP STORIES CAROUSEL */}
-      <StoriesCarousel 
-        myStories={myStories}
-        friendsStories={friendsStories}
-        onAddStory={() => navigation.navigate('StoryComposer')}
-        onOpenMyStory={() => navigation.navigate('StoryViewer', { stories: myStories })}
-        onOpenFriendStory={(stories: any) => navigation.navigate('StoryViewer', { stories })}
-      />
+      
 
       {isLoading ? (
         <ScrollView showsVerticalScrollIndicator={false}>
@@ -463,6 +463,13 @@ export default function FeedScreen({ navigation, route }: any) {
         </View>
       ) : (
         <FlashList
+        ListHeaderComponent={<View style={{ paddingBottom: 10 }}><StoriesCarousel 
+        myStories={myStories}
+        friendsStories={friendsStories}
+        onAddStory={() => navigation.navigate('StoryComposer')}
+        onOpenMyStory={() => navigation.navigate('StoryViewer', { stories: myStories })}
+        onOpenFriendStory={(stories: any) => navigation.navigate('StoryViewer', { stories })}
+      /></View>}
           style={{ backgroundColor: '#000' }}
           data={posts}
           renderItem={({ item, index }: any) => {
@@ -744,7 +751,8 @@ const styles = StyleSheet.create({
   adminCancelBtn: { marginTop: 30, padding: 10 },
   adminCancelText: { color: '#6d7382', fontSize: 14, fontWeight: '600' },
 
-  stickyHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 14, backgroundColor: '#000', borderBottomWidth: 1, borderBottomColor: '#1f1f1f', zIndex: 100 },
+  stickyHeader: {
+    borderBottomWidth: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 14, backgroundColor: '#000', borderBottomWidth: 1, borderBottomColor: '#1f1f1f', zIndex: 100 },
   brandText: { fontSize: 26, fontWeight: '900', color: '#ef4444', letterSpacing: -1.2 },
   plusBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#141414', alignItems: 'center', justifyContent: 'center' },
   filterPill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#141414', borderRadius: 20 },

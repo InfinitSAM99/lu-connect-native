@@ -63,6 +63,7 @@ export default function SettingsScreen({ navigation }: any) {
           <SettingRow onClick={() => navigation.navigate('LoginActivity')} iconName="log-in-outline" title="Login Activity" />
           <SettingRow onClick={() => navigation.navigate('BlockedUsers')} iconName="ban-outline" title="Blocked Users" />
           <SettingRow onClick={() => navigation.navigate('Preferences')} iconName="color-palette-outline" title="Appearance & Theme" />
+          <SettingRow onClick={() => navigation.navigate('NavigationStyle')} iconName="apps-outline" title="Navigation Style" />
           <SettingRow onClick={() => navigation.navigate('NotificationSettings')} iconName="notifications-outline" title="Notifications" />
           <SettingRow onClick={() => navigation.navigate('Announcements')} iconName="megaphone-outline" title="Announcements" />
           <SettingRow onClick={() => navigation.navigate('Events')} iconName="calendar-outline" title="Events" />

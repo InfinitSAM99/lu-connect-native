@@ -23,8 +23,13 @@ export function AuthProvider({ children }: any) {
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [navType, setNavType] = useState('radial');
   const [cacheHydrated, setCacheHydrated] = useState(false);
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    AsyncStorage.getItem('app_nav_type').then(v => { if (v) setNavType(v); });
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -133,7 +138,7 @@ export function AuthProvider({ children }: any) {
   };
 
   return (
-    <AuthContext.Provider value={{
+    <AuthContext.Provider value={{ navType, setNavType,
       user, profile, loading, setProfile,
       signOut,
       reloadProfile: () => loadProfile(user?.id),
