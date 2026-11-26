@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as WebBrowser from 'expo-web-browser';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 
@@ -67,7 +68,7 @@ export default function SettingsScreen({ navigation }: any) {
           <SettingRow onClick={() => navigation.navigate('NotificationSettings')} iconName="notifications-outline" title="Notifications" />
           <SettingRow onClick={() => navigation.navigate('Announcements')} iconName="megaphone-outline" title="Announcements" />
           <SettingRow onClick={() => navigation.navigate('Events')} iconName="calendar-outline" title="Events" />
-          <SettingRow onClick={() => navigation.navigate('ContactAdmin')} iconName="help-circle-outline" title="Help Center" />
+          <SettingRow onClick={() => WebBrowser.openBrowserAsync('https://lu-connect-website-sigma.vercel.app', { toolbarColor: '#000000', controlsColor: '#ffffff', enableBarCollapsing: true })} iconName="help-circle-outline" title="Help Center" />
 
           {/* LOGOUT */}
           <TouchableOpacity style={styles.row} onPress={signOut} activeOpacity={0.6}>

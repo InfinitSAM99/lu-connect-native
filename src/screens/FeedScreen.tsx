@@ -204,8 +204,9 @@ export default function FeedScreen({ navigation, route }: any) {
 
   // ADMIN STATES
   const [showAdminModal, setShowAdminModal] = useState(false);
-  const [showCreateMenu, setShowCreateMenu] = useState(false);
+  
   const [showReelUpload, setShowReelUpload] = useState(false);
+  const [showCreateMenu, setShowCreateMenu] = useState(false);
   const [adminCode, setAdminCode] = useState('');
   const [adminError, setAdminError] = useState('');
 
@@ -559,15 +560,10 @@ export default function FeedScreen({ navigation, route }: any) {
       )}
 
       {/* COMPOSER MODAL */}
-      <Modal visible={composerOpen} animationType="slide" transparent onRequestClose={() => setComposerOpen(false)}>
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)', paddingBottom: keyboardHeight }}>
-          <View style={{ backgroundColor: '#0a0a0a', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '92%' }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#1f1f1f' }}>
-              <Text style={{ fontSize: 18, fontWeight: '700', color: '#fff' }}>New Post</Text>
-              <FastButton onPress={() => setComposerOpen(false)}>
-                <Ionicons name="close" size={24} color="#fff" />
-              </FastButton>
-            </View>
+      <Modal visible={composerOpen} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setComposerOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: '#000' }}>
+          <View style={{ flex: 1 }}>
+            
             <PostComposer onPosted={handleNewPost} onClose={() => setComposerOpen(false)} initialAnonymous={initialAnonymous} />
           </View>
         </View>
@@ -611,60 +607,10 @@ export default function FeedScreen({ navigation, route }: any) {
       </Modal>
 
 
-      <UploadReelModal visible={showReelUpload} onClose={() => setShowReelUpload(false)} onUploaded={() => {}} />
+      
 
       {/* CREATE MENU */}
-      <Modal visible={showCreateMenu} transparent animationType="slide" onRequestClose={() => setShowCreateMenu(false)}>
-        <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'flex-start' }} activeOpacity={1} onPress={() => setShowCreateMenu(false)}>
-          <View style={{ backgroundColor: '#0a0a0a', borderBottomLeftRadius: 24, borderBottomRightRadius: 24, paddingTop: insets.top + 20, paddingBottom: 30 }}>
-
-            <Text style={{ color: '#fff', fontSize: 18, fontWeight: '800', textAlign: 'center', marginBottom: 24, letterSpacing: 1 }}>CREATE</Text>
-
-            <View style={{ flexDirection: 'row', justifyContent: 'space-around', paddingHorizontal: 20 }}>
-
-              {/* POST */}
-              <TouchableOpacity style={{ alignItems: 'center' }} onPress={() => { setShowCreateMenu(false); setComposerOpen(true); }}>
-                <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(59,130,246,0.15)', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
-                  <Ionicons name="create" size={30} color="#3b82f6" />
-                </View>
-                <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>Post</Text>
-              </TouchableOpacity>
-
-              {/* REEL */}
-              <TouchableOpacity style={{ alignItems: 'center' }} onPress={() => { setShowCreateMenu(false); setShowReelUpload(true); }}>
-                <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(244,63,94,0.15)', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
-                  <Ionicons name="videocam" size={30} color="#f43f5e" />
-                </View>
-                <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>Reel</Text>
-              </TouchableOpacity>
-
-              {/* EVENT */}
-              <TouchableOpacity style={{ alignItems: 'center' }} onPress={() => { setShowCreateMenu(false); navigation.navigate('Events'); }}>
-                <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(139,92,246,0.15)', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
-                  <Ionicons name="calendar" size={30} color="#8b5cf6" />
-                </View>
-                <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>Event</Text>
-              </TouchableOpacity>
-
-              {/* ACADEMIC */}
-              <TouchableOpacity style={{ alignItems: 'center' }} onPress={() => { setShowCreateMenu(false); navigation.navigate('AcademicHub'); }}>
-                <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(234,179,8,0.15)', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
-                  <Ionicons name="school" size={30} color="#eab308" />
-                </View>
-                <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>Academic</Text>
-              </TouchableOpacity>
-
-            </View>
-
-            <View style={{ alignItems: 'center', marginTop: 30 }}>
-               <TouchableOpacity onPress={() => setShowCreateMenu(false)} style={{ padding: 10 }}>
-                 <Text style={{ color: '#6d7382', fontSize: 14, fontWeight: '600' }}>Cancel</Text>
-               </TouchableOpacity>
-            </View>
-
-          </View>
-        </TouchableOpacity>
-      </Modal>
+      
 
       {/* ADMIN SECRET CODE MODAL */}
       <Modal visible={showAdminModal} transparent animationType="fade">
@@ -722,6 +668,43 @@ export default function FeedScreen({ navigation, route }: any) {
           </ScrollView>
         </KeyboardAvoidingView>
       </Modal>
+
+      
+      {/* TOGGLEABLE DARK ACTION BAR */}
+      {showCreateMenu && (
+        <View style={{ position: 'absolute', right: 16, top: insets.top + 70, backgroundColor: '#141414', borderRadius: 30, paddingVertical: 12, paddingHorizontal: 8, gap: 16, zIndex: 100, borderWidth: 1, borderColor: '#2a2a2a' }}>
+          
+          <TouchableOpacity 
+            style={{ alignItems: 'center' }}
+            onPress={() => { setShowCreateMenu(false); setComposerOpen(true); }}
+          >
+            <Ionicons name="create-outline" size={24} color="#fff" />
+            <Text style={{ color: '#fff', fontSize: 10, marginTop: 4, fontWeight: '600' }}>Post</Text>
+          </TouchableOpacity>
+
+          <View style={{ height: 1, backgroundColor: '#2a2a2a', width: '80%', alignSelf: 'center' }} />
+
+          <TouchableOpacity 
+            style={{ alignItems: 'center' }}
+            onPress={() => { setShowCreateMenu(false); navigation.navigate('Events'); }}
+          >
+            <Ionicons name="calendar-outline" size={24} color="#fff" />
+            <Text style={{ color: '#fff', fontSize: 10, marginTop: 4, fontWeight: '600' }}>Event</Text>
+          </TouchableOpacity>
+
+          <View style={{ height: 1, backgroundColor: '#2a2a2a', width: '80%', alignSelf: 'center' }} />
+
+          <TouchableOpacity 
+            style={{ alignItems: 'center' }}
+            onPress={() => { setShowCreateMenu(false); navigation.navigate('AcademicHub'); }}
+          >
+            <Ionicons name="school-outline" size={24} color="#fff" />
+            <Text style={{ color: '#fff', fontSize: 10, marginTop: 4, fontWeight: '600' }}>Academic</Text>
+          </TouchableOpacity>
+
+        </View>
+      )}
+
     </View>
   );
 }

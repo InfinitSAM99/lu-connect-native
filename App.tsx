@@ -51,11 +51,33 @@ export default function App() {
   const [checkingLock, setCheckingLock] = useState(true);
 
   useEffect(() => {
-    const handleDeepLink = (event: any) => {
+    const handleDeepLink = async (event: any) => {
       const url = event.url;
-      if (!url || !navigationRef.isReady()) return;
+      if (!url) return;
+
+      // 1. Handle Auth Callback from Web Login
+      if (url.includes('auth-callback')) {
+        const params = new URLSearchParams(url.split('#')[1]);
+        const accessToken = params.get('access_token');
+        const refreshToken = params.get('refresh_token');
+
+        if (accessToken && refreshToken) {
+          try {
+            const { supabase } = await import('./src/lib/supabase');
+            await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+          } catch (e) {
+            console.error('Auth callback error:', e);
+          }
+        }
+        return; // Stop processing navigation for auth links
+      }
+
+      // 2. Handle Standard Deep Links
+      if (!navigationRef.isReady()) return;
+      
       const path = url.replace('https://luconnect.app', '').replace('luconnect://', '');
       const parts = path.split('/').filter(Boolean);
+      
       if (parts[0] === 'profile' && parts[1]) navigationRef.navigate('Profile', { id: parts[1] });
       else if (parts[0] === 'reel' && parts[1]) navigationRef.navigate('Video', { startReelId: parts[1] });
       else if (parts[0] === 'post' && parts[1]) navigationRef.navigate('PostDetail', { id: parts[1] });

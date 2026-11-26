@@ -23,12 +23,17 @@ export function AuthProvider({ children }: any) {
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [navType, setNavType] = useState('radial');
+  const [navType, setNavTypeState] = useState('top');
+
+  const setNavType = async (type: string) => {
+    setNavTypeState(type);
+    try { await AsyncStorage.setItem('app_nav_type', type); } catch {}
+  };
   const [cacheHydrated, setCacheHydrated] = useState(false);
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    AsyncStorage.getItem('app_nav_type').then(v => { if (v) setNavType(v); });
+    AsyncStorage.getItem('app_nav_type').then(v => { if (v) setNavTypeState(v); });
   }, []);
 
   useEffect(() => {

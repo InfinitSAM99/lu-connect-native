@@ -247,6 +247,7 @@ export default function AppNavigator() {
             <Stack.Screen name="HallOfFame" component={HallOfFameScreen} />
             <Stack.Screen name="Tunnels" component={TunnelsScreen} />
             <Stack.Screen name="Video" component={withLayout(VideoScreen)} />
+            <Stack.Screen name="UploadReelScreen" component={UploadReelScreen} options={{ presentation: 'fullScreenModal' }} />
             <Stack.Screen name="UploadReel" component={withLayout(UploadReelScreen)} />
             <Stack.Screen name="Announcements" component={withLayout(AnnouncementsScreen)} />
             <Stack.Screen name="AnnouncementDetail" component={AnnouncementDetailScreen} />
