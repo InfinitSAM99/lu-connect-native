@@ -1,13 +1,10 @@
-import React, { useEffect, useState, useRef, useMemo } from 'react';
-import { View, Image, ImageBackground, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Modal, FlatList, Switch } from 'react-native';
+import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
+import { View, Image, ImageBackground, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Modal, FlatList } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
-import Slider from '@react-native-community/slider';
 import { BlurView } from 'expo-blur';
 import { useAudioRecorder, AudioModule, RecordingPresets } from 'expo-audio';
 import { supabase } from '../lib/supabase';
@@ -108,7 +105,6 @@ export default function ConversationScreen({ route, navigation }: any) {
   const [bgOverlay, setBgOverlay] = useState(20);
   const [bgSaturation, setBgSaturation] = useState(100);
   const [brightnessLevel, setBrightnessLevel] = useState(2);
-  const [premiumLockVisible, setPremiumLockVisible] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
   const [theyBlockedMe, setTheyBlockedMe] = useState(false);
 
@@ -150,7 +146,12 @@ export default function ConversationScreen({ route, navigation }: any) {
     queryFn: () => loadConversation(id, myId!),
   });
   const rawMessages = convQuery.data?.messages || [];
-  const messages = [...rawMessages].sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  
+  // ⚡ OPTIMIZATION: Memoize the sorted messages
+  const messages = useMemo(() => {
+    return [...rawMessages].sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  }, [rawMessages]);
+
   const other = convQuery.data?.other || null;
   const otherOnline = convQuery.data?.otherOnline || false;
   const group = convQuery.data?.group || null;
@@ -219,7 +220,6 @@ export default function ConversationScreen({ route, navigation }: any) {
           if (!old) return old;
           return { ...old, messages: [...old.messages, { ...newRow, sender }] };
         });
-        queryClient.invalidateQueries({ queryKey: ['convs', myId] });
       }
       else if (payload.eventType === 'UPDATE') {
         queryClient.setQueryData(queryKey, (old: any) => {
@@ -248,13 +248,31 @@ export default function ConversationScreen({ route, navigation }: any) {
   const lastMsgId = messages.length > 0 ? messages[messages.length - 1].id : null;
   useEffect(() => { if (lastMsgId) setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 100); }, [lastMsgId, isOtherTyping]);
 
-  const insertMessage = async (payload: any) => {
+  // ⚡ OPTIMIZATION: Fire-and-forget insert with instant optimistic UI
+  const insertMessage = useCallback(async (payload: any) => {
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const tempMsg = {
+      ...payload,
+      id: tempId,
+      sender_id: myId,
+      sender: profile,
+      _optimistic: true,
+      created_at: new Date().toISOString(),
+    };
+
+    // 1. Instantly add to UI
     queryClient.setQueryData(queryKey, (old: any) => {
       if (!old) return old;
-      return { ...old, messages: [...old.messages, { ...payload, id: tempId, sender: profile, _optimistic: true, created_at: new Date().toISOString() }] };
+      return { ...old, messages: [...old.messages, tempMsg] };
     });
-    const { data: inserted, error } = await supabase.from('messages').insert({ conversation_id: id, sender_id: myId, ...payload }).select(MSG_COLS).single();
+
+    // 2. Fire to Supabase in the background
+    const { data: inserted, error } = await supabase
+      .from('messages')
+      .insert({ conversation_id: id, sender_id: myId, ...payload })
+      .select(MSG_COLS)
+      .single();
+
     if (error) {
       queryClient.setQueryData(queryKey, (old: any) => {
         if (!old) return old;
@@ -262,11 +280,13 @@ export default function ConversationScreen({ route, navigation }: any) {
       });
       throw new Error(error.message);
     }
+
+    // 3. Swap temp with real (removes spinner, gives real ID)
     queryClient.setQueryData(queryKey, (old: any) => {
       if (!old) return old;
       return { ...old, messages: old.messages.map((m: any) => m.id === tempId ? { ...inserted, sender: profile, _optimistic: false } : m) };
     });
-  };
+  }, [id, myId, profile, queryClient, queryKey]);
 
   const handleTyping = (val: string) => {
     setText(val);
@@ -283,16 +303,26 @@ export default function ConversationScreen({ route, navigation }: any) {
     await supabase.from('conversation_members').update({ theme_blur: blur, theme_brightness: brightness, theme_dark_overlay: overlay, theme_saturation: bgSaturation }).eq('conversation_id', id).eq('user_id', myId);
   };
 
-  const sendText = async () => {
-    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-    supabase.channel(`typing:${id}`).send({ type: 'broadcast', event: 'typing', payload: { user_id: profile?.id, is_typing: false } });
+  // ⚡ OPTIMIZATION: Fire-and-forget typing broadcast + instant clear + instant insert
+  const sendText = () => {
     const content = text.trim();
     if (!content) return;
-    const parentId = replyingTo?.id || null;
-    setText(''); setReplyingTo(null);
-    if (typingChannelRef.current) typingChannelRef.current.send({ type: 'broadcast', event: 'typing', payload: { user_id: myId, is_typing: false } });
-    try { await insertMessage({ content, parent_id: parentId }); }
-    catch (e: any) { setErrMsg(e.message); }
+
+    // 1. Clear input INSTANTLY
+    setText('');
+    setReplyingTo(null);
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+
+    // 2. Broadcast typing-off in background (fire and forget)
+    supabase.channel(`typing:${id}`).send({ 
+      type: 'broadcast', 
+      event: 'typing', 
+      payload: { user_id: profile?.id, is_typing: false } 
+    }).catch(() => {});
+
+    // 3. Insert message (fire and forget - insertMessage handles optimistic UI)
+    insertMessage({ content, parent_id: replyingTo?.id || null })
+      .catch((e: any) => setErrMsg(e.message));
   };
 
   const toggleRecording = async () => {

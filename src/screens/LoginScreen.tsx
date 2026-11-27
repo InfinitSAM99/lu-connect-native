@@ -2,13 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, Image } from 'react-native';
 import Svg, { Rect, Path } from 'react-native-svg';
 import * as WebBrowser from 'expo-web-browser';
+import * as Linking from 'expo-linking';
 import { useAuth } from '../context/AuthContext';
 import AuthErrorSheet from '../components/AuthErrorSheet';
 
 export default function LoginScreen({ navigation }: any) {
   const { kickoutReason } = useAuth();
   const [loading, setLoading] = useState(false);
-  const [authError, setAuthError] = useState<{ visible: boolean; title: string; message: string; showReset: boolean }>({ visible: false, title: '', message: '', showReset: false });
+  const [authError, setAuthError] = useState({ visible: false, title: '', message: '', showReset: false });
 
   useEffect(() => {
     if (kickoutReason) {
@@ -19,10 +20,14 @@ export default function LoginScreen({ navigation }: any) {
   const handleWebLogin = async () => {
     setLoading(true);
     try {
-      const webUrl = "https://lu-connect-website-sigma.vercel.app/login";
+      // createURL returns "exp://IP:PORT/--/auth-callback" in dev
+      // and "luconnectnative://auth-callback" in production
+      const redirectUrl = Linking.createURL('auth-callback');
       
-      // Use openAuthSessionAsync with matching dark theme colors
-      const res = await WebBrowser.openAuthSessionAsync(webUrl, "luconnectnative://auth-callback", {
+      // Pass the full redirect URL to the website so it knows where to send tokens
+      const webUrl = `https://lu-connect-website-sigma.vercel.app/login?redirect=${encodeURIComponent(redirectUrl)}`;
+
+      const res = await WebBrowser.openAuthSessionAsync(webUrl, redirectUrl, {
         toolbarColor: '#000000',
         controlsColor: '#ffffff',
         showInRecents: true,
@@ -49,8 +54,6 @@ export default function LoginScreen({ navigation }: any) {
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-
-        {/* TOP SECTION - LU LOGO */}
         <View style={styles.header}>
           <Svg viewBox="0 0 200 200" width={120} height={120}>
             <Rect x="14" y="14" width="172" height="172" rx="34" fill="none" stroke="#ef4444" strokeWidth={5} />
@@ -61,7 +64,6 @@ export default function LoginScreen({ navigation }: any) {
           <Text style={styles.subtitle}>Connect with your university community</Text>
         </View>
 
-        {/* MIDDLE SECTION - GOOGLE BUTTON */}
         <View style={styles.actions}>
           <TouchableOpacity style={styles.socialBtn} onPress={handleWebLogin} disabled={loading}>
             {loading ? (
@@ -80,16 +82,11 @@ export default function LoginScreen({ navigation }: any) {
           </TouchableOpacity>
         </View>
 
-        {/* BOTTOM SECTION - INFINIT CO BRANDING */}
         <View style={styles.footerLogo}>
           <View style={styles.divider} />
-          <Image
-            source={require('../../assets/images/infinit_logo.png')}
-            style={{ width: 240, height: 90, resizeMode: 'contain', marginBottom: 10 }}
-          />
+          <Image source={require('../../assets/images/infinit_logo.png')} style={{ width: 240, height: 90, resizeMode: 'contain', marginBottom: 10 }} />
           <Text style={styles.poweredBy}>INFINIT CO ACCOUNT</Text>
         </View>
-
       </ScrollView>
 
       <AuthErrorSheet
@@ -107,15 +104,12 @@ export default function LoginScreen({ navigation }: any) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
   scrollContent: { flexGrow: 1, justifyContent: 'space-between', padding: 24, paddingTop: 60, paddingBottom: 40 },
-
   header: { alignItems: 'center' },
   title: { fontSize: 26, fontWeight: '700', color: '#fff', letterSpacing: 0.5, marginTop: 18 },
   subtitle: { fontSize: 13, color: '#6d7382', textAlign: 'center', maxWidth: 280, marginTop: 8, lineHeight: 20 },
-
   actions: { width: '100%', maxWidth: 380, alignSelf: 'center', marginVertical: 40 },
   socialBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#141414', borderColor: '#2a2a2a', borderWidth: 1, borderRadius: 16, paddingVertical: 16, gap: 10 },
   socialBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
-
   footerLogo: { alignItems: 'center', width: '100%' },
   divider: { height: 1, width: 200, backgroundColor: '#1f1f1f', marginBottom: 30 },
   poweredBy: { color: '#6d7382', fontSize: 10, letterSpacing: 3, textTransform: 'uppercase', fontWeight: '600' },
