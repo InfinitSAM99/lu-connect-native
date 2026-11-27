@@ -1,0 +1,37 @@
+name: EAS Update Preview
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  publish-ota:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup Expo / EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Publish preview OTA update
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+          EXPO_PUBLIC_NTFY_URL: ${{ secrets.EXPO_PUBLIC_NTFY_URL }}
+          EXPO_PUBLIC_UPSTASH_URL: ${{ secrets.EXPO_PUBLIC_UPSTASH_URL }}
+          EXPO_PUBLIC_UPSTASH_TOKEN: ${{ secrets.EXPO_PUBLIC_UPSTASH_TOKEN }}
+        run: eas update --branch preview --platform android --non-interactive --message "OTA: ${{ github.event.head_commit.message }}"
