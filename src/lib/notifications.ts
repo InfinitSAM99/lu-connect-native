@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { NativeModules, Platform } from 'react-native';
 import {
   installForegroundHandler,
@@ -42,11 +42,34 @@ function applyNativeTopic(url: string) {
 
 installForegroundHandler();
 
+async function showLocalMessageNotification(frame: NtfyFrame) {
+  if (frame.event !== 'message' || !frame.message) return;
+  try {
+    const Notifications = await import('expo-notifications');
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: frame.title || 'LU Connect',
+        body: frame.message,
+        data: {
+          topic: frame.topic,
+          tags: frame.tags ?? [],
+          click: frame.click,
+        },
+      },
+      trigger: null,
+    });
+  } catch (e) {
+    console.log('Failed to display local notification:', e);
+  }
+}
+
 export function useLuConnectNtfy(
   onMessage?: (frame: NtfyFrame) => void,
   text: NotificationText = { appName: 'LU Connect', linkPrefix: 'luconnectnative://' },
 ) {
   const [topicUrl, setTopicUrl] = useState<string>(activeTopicUrl);
+  const onMessageRef = useRef(onMessage);
+  onMessageRef.current = onMessage;
 
   useEffect(() => {
     const listener = (nextUrl: string) => setTopicUrl(nextUrl);
@@ -57,7 +80,28 @@ export function useLuConnectNtfy(
     };
   }, []);
 
-  return useNtfy(topicUrl, onMessage, { text });
+  return useNtfy(
+    topicUrl,
+    (frame: NtfyFrame) => {
+      if (frame.event === 'message') {
+        void showLocalMessageNotification(frame);
+      }
+      onMessageRef.current?.(frame);
+    },
+    { text },
+  );
+}
+
+export function UserNtfySubscriber({ userId }: { userId?: string | null }) {
+  useLuConnectNtfy();
+  useEffect(() => {
+    if (userId) {
+      applyNativeTopic(getUserNtfyTopicUrl(userId));
+    } else {
+      applyNativeTopic(BASE_NTFY_URL);
+    }
+  }, [userId]);
+  return null;
 }
 
 export async function initPushNotifications(userId: string) {
