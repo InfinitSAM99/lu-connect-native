@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { NativeModules, Platform } from 'react-native';
+import * as Notifications from 'expo-notifications';
 import {
-  installForegroundHandler,
   ensureNotificationPermission,
   useNtfy,
 } from '@drkostas/expo-ntfy/notify';
@@ -11,6 +11,36 @@ import { supabase } from './supabase';
 const BASE_NTFY_URL = (
   process.env.EXPO_PUBLIC_NTFY_URL || 'https://ntfy.sh/lu-connect-students-9f4k2'
 ).replace(/\/+$/, '');
+
+const ANDROID_CHANNEL_ID = 'lu_connect_alerts';
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
+});
+
+async function ensureAndroidAlertChannel() {
+  if (Platform.OS !== 'android') return;
+  try {
+    await Notifications.setNotificationChannelAsync(ANDROID_CHANNEL_ID, {
+      name: 'LU Connect Alerts',
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 250, 250, 250],
+      sound: 'default',
+      enableVibrate: true,
+      showBadge: true,
+    });
+  } catch (e) {
+    console.log('Failed to create notification channel:', e);
+  }
+}
+
+void ensureAndroidAlertChannel();
 
 function getNtfyBaseOrigin(): string {
   const lastSlash = BASE_NTFY_URL.lastIndexOf('/');
@@ -40,21 +70,37 @@ function applyNativeTopic(url: string) {
   }
 }
 
-installForegroundHandler();
+const recentAlertKeys = new Set<string>();
 
-async function showLocalMessageNotification(frame: NtfyFrame) {
-  if (frame.event !== 'message' || !frame.message) return;
+function rememberAlertKey(key: string): boolean {
+  if (!key) return true;
+  if (recentAlertKeys.has(key)) return false;
+  recentAlertKeys.add(key);
+  if (recentAlertKeys.size > 100) {
+    const first = recentAlertKeys.values().next().value;
+    if (first) recentAlertKeys.delete(first);
+  }
+  return true;
+}
+
+async function presentBannerNotification(params: {
+  dedupeKey: string;
+  title?: string | null;
+  body?: string | null;
+  data?: Record<string, unknown>;
+}) {
+  if (!params.body && !params.title) return;
+  if (!rememberAlertKey(params.dedupeKey)) return;
+
   try {
-    const Notifications = await import('expo-notifications');
+    await ensureAndroidAlertChannel();
     await Notifications.scheduleNotificationAsync({
       content: {
-        title: frame.title || 'LU Connect',
-        body: frame.message,
-        data: {
-          topic: frame.topic,
-          tags: frame.tags ?? [],
-          click: frame.click,
-        },
+        title: params.title || 'LU Connect',
+        body: params.body || 'New notification',
+        sound: 'default',
+        data: params.data ?? {},
+        ...(Platform.OS === 'android' ? { channelId: ANDROID_CHANNEL_ID } : {}),
       },
       trigger: null,
     });
@@ -83,8 +129,18 @@ export function useLuConnectNtfy(
   return useNtfy(
     topicUrl,
     (frame: NtfyFrame) => {
-      if (frame.event === 'message') {
-        void showLocalMessageNotification(frame);
+      if (frame.event === 'message' && frame.message) {
+        const key = `${frame.title ?? ''}|${frame.message}`;
+        void presentBannerNotification({
+          dedupeKey: key,
+          title: frame.title,
+          body: frame.message,
+          data: {
+            topic: frame.topic,
+            tags: frame.tags ?? [],
+            click: frame.click,
+          },
+        });
       }
       onMessageRef.current?.(frame);
     },
@@ -94,13 +150,56 @@ export function useLuConnectNtfy(
 
 export function UserNtfySubscriber({ userId }: { userId?: string | null }) {
   useLuConnectNtfy();
+
   useEffect(() => {
-    if (userId) {
-      applyNativeTopic(getUserNtfyTopicUrl(userId));
-    } else {
+    if (!userId) {
       applyNativeTopic(BASE_NTFY_URL);
+      return;
     }
+
+    applyNativeTopic(getUserNtfyTopicUrl(userId));
+    void ensureAndroidAlertChannel();
+
+    const channel = supabase
+      .channel(`user-notifications-${userId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${userId}`,
+        },
+        (payload) => {
+          const row = payload.new as {
+            id?: string;
+            title?: string | null;
+            body?: string | null;
+            type?: string | null;
+            link?: string | null;
+            reference_id?: string | null;
+          };
+          const key = `${row.title ?? ''}|${row.body ?? ''}`;
+          void presentBannerNotification({
+            dedupeKey: key,
+            title: row.title,
+            body: row.body,
+            data: {
+              notificationId: row.id,
+              type: row.type,
+              link: row.link,
+              referenceId: row.reference_id,
+            },
+          });
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
   }, [userId]);
+
   return null;
 }
 
@@ -110,6 +209,7 @@ export async function initPushNotifications(userId: string) {
   const userTopicUrl = getUserNtfyTopicUrl(userId);
   applyNativeTopic(userTopicUrl);
 
+  await ensureAndroidAlertChannel();
   const granted = await ensureNotificationPermission();
   if (!granted) return;
 
@@ -118,7 +218,6 @@ export async function initPushNotifications(userId: string) {
   }
 
   try {
-    const Notifications = await import('expo-notifications');
     const token = (await Notifications.getExpoPushTokenAsync()).data;
 
     const { error } = await supabase.from('push_tokens').upsert(

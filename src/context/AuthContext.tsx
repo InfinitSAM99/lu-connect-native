@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
-import { initPushNotifications, clearPushToken } from '../lib/notifications';
+import { initPushNotifications, clearPushToken, UserNtfySubscriber } from '../lib/notifications';
 
 const AuthContext = createContext<any>(null);
 const USER_CACHE_KEY = 'lu:cachedUser';
@@ -148,6 +148,7 @@ export function AuthProvider({ children }: any) {
       signOut,
       reloadProfile: () => loadProfile(user?.id),
     }}>
+      <UserNtfySubscriber userId={user?.id} />
       {children}
     </AuthContext.Provider>
   );
