@@ -9,7 +9,7 @@ import AuthErrorSheet from '../components/AuthErrorSheet';
 export default function LoginScreen({ navigation }: any) {
   const { kickoutReason } = useAuth();
   const [loading, setLoading] = useState(false);
-  const [authError, setAuthError] = useState({ visible: false, title: '', message: '', showReset: false });
+  const [authError, setAuthError] = useState<{ visible: boolean; title: string; message: string; showReset: boolean }>({ visible: false, title: '', message: '', showReset: false });
 
   useEffect(() => {
     if (kickoutReason) {
@@ -20,13 +20,14 @@ export default function LoginScreen({ navigation }: any) {
   const handleWebLogin = async () => {
     setLoading(true);
     try {
-      // createURL returns "exp://IP:PORT/--/auth-callback" in dev
-      // and "luconnectnative://auth-callback" in production
+      // 1. In development (Expo Go), this returns: exp://192.168.x.x:8081/--/auth-callback
+      // 2. In production (APK), this returns: luconnectnative://auth-callback
       const redirectUrl = Linking.createURL('auth-callback');
       
-      // Pass the full redirect URL to the website so it knows where to send tokens
+      // We pass the redirect URL to the website as a query param
       const webUrl = `https://lu-connect-website-sigma.vercel.app/login?redirect=${encodeURIComponent(redirectUrl)}`;
 
+      // We open the session with the same redirect URL as the expected return URL
       const res = await WebBrowser.openAuthSessionAsync(webUrl, redirectUrl, {
         toolbarColor: '#000000',
         controlsColor: '#ffffff',
@@ -35,13 +36,19 @@ export default function LoginScreen({ navigation }: any) {
 
       if (res.type === 'success' && res.url) {
         const url = res.url;
-        const params = new URLSearchParams(url.split('#')[1]);
-        const accessToken = params.get('access_token');
-        const refreshToken = params.get('refresh_token');
+        // Expo Go uses exp://...#access_token=...
+        // Production uses luconnectnative://auth-callback#access_token=...
+        // In both cases, splitting by '#' gets the tokens
+        const hashIndex = url.indexOf('#');
+        if (hashIndex > -1) {
+          const params = new URLSearchParams(url.substring(hashIndex + 1));
+          const accessToken = params.get('access_token');
+          const refreshToken = params.get('refresh_token');
 
-        if (accessToken && refreshToken) {
-          const { supabase } = await import('../lib/supabase');
-          await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+          if (accessToken && refreshToken) {
+            const { supabase } = await import('../lib/supabase');
+            await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+          }
         }
       }
     } catch (e: any) {
