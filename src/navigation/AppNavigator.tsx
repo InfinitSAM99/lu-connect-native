@@ -279,6 +279,7 @@ export default function AppNavigator() {
             <Stack.Screen name="SubscriptionScreen" component={SubscriptionScreen} options={{ presentation: 'modal' }} />
             <Stack.Screen name="GetVerified" component={withLayout(GetVerifiedScreen)} />
             <Stack.Screen name="GetBoosted" component={withLayout(GetBoostedScreen)} />
+            <Stack.Screen name="PaymentMethods" component={withLayout(PaymentMethodsScreen)} />
 
             {/* Modals & Sub-screens */}
             <Stack.Screen name="UniversityPicker" component={UniversityPickerScreen} options={{ presentation: 'modal' }} />

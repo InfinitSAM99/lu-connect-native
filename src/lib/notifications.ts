@@ -31,7 +31,7 @@ async function ensureAndroidAlertChannel() {
       name: 'LU Connect Alerts',
       importance: Notifications.AndroidImportance.MAX,
       vibrationPattern: [0, 250, 250, 250],
-      sound: 'default',
+      sound: null,
       enableVibrate: true,
       showBadge: true,
     });
@@ -98,7 +98,7 @@ async function presentBannerNotification(params: {
       content: {
         title: params.title || 'LU Connect',
         body: params.body || 'New notification',
-        sound: 'default',
+        sound: null,
         data: params.data ?? {},
         ...(Platform.OS === 'android' ? { channelId: ANDROID_CHANNEL_ID } : {}),
       },
