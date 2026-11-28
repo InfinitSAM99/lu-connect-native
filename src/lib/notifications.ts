@@ -12,7 +12,7 @@ const BASE_NTFY_URL = (
   process.env.EXPO_PUBLIC_NTFY_URL || 'https://ntfy.sh/lu-connect-students-9f4k2'
 ).replace(/\/+$/, '');
 
-const ANDROID_CHANNEL_ID = 'lu_connect_alerts';
+const ANDROID_CHANNEL_ID = 'lu_connect_alerts_v2'; // Changed to v2 to force Android to update settings
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -24,6 +24,18 @@ Notifications.setNotificationHandler({
   }),
 });
 
+// 1. Set up the Quick Reply Category
+Notifications.setNotificationCategoryAsync('message-reply', [
+  {
+    identifier: 'reply',
+    buttonTitle: 'Reply',
+    textInput: {
+      submitButtonTitle: 'Send',
+      placeholder: 'Type your message...',
+    },
+  },
+]).catch((err) => console.log('Failed to set category:', err));
+
 async function ensureAndroidAlertChannel() {
   if (Platform.OS !== 'android') return;
   try {
@@ -31,7 +43,10 @@ async function ensureAndroidAlertChannel() {
       name: 'LU Connect Alerts',
       importance: Notifications.AndroidImportance.MAX,
       vibrationPattern: [0, 250, 250, 250],
-      sound: null,
+      lightColor: '#FF231F7C',
+      bypassDnd: true,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      sound: 'default',
       enableVibrate: true,
       showBadge: true,
     });
@@ -98,7 +113,8 @@ async function presentBannerNotification(params: {
       content: {
         title: params.title || 'LU Connect',
         body: params.body || 'New notification',
-        sound: null,
+        sound: 'default',
+        categoryIdentifier: params.data?.tags?.includes('chat') ? 'message-reply' : undefined,
         data: params.data ?? {},
         ...(Platform.OS === 'android' ? { channelId: ANDROID_CHANNEL_ID } : {}),
       },
@@ -139,6 +155,7 @@ export function useLuConnectNtfy(
             topic: frame.topic,
             tags: frame.tags ?? [],
             click: frame.click,
+            type: frame.tags?.includes('chat') ? 'chat' : 'alert',
           },
         });
       }
@@ -189,6 +206,7 @@ export function UserNtfySubscriber({ userId }: { userId?: string | null }) {
               type: row.type,
               link: row.link,
               referenceId: row.reference_id,
+              tags: ['chat'], // Force chat tag for Supabase notifications to trigger the reply button
             },
           });
         },
@@ -230,7 +248,7 @@ export async function initPushNotifications(userId: string) {
       { onConflict: 'user_id' },
     );
 
-    if (error) console.log('Error saving token:', error.message);
+    if (error) console.log('Error saving token to Supabase:', error.message);
   } catch (e) {
     console.log('Push token skipped/error:', e);
   }

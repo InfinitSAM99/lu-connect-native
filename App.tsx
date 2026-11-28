@@ -17,6 +17,7 @@ import Toast from 'react-native-toast-message';
 import { toastConfig } from './src/components/PremiumToast';
 import { navigationRef } from './src/navigation/navigationRef';
 import { initPushNotifications } from './src/lib/notifications';
+import { supabase } from './src/lib/supabase';
 
 const queryClient = new QueryClient();
 
@@ -31,8 +32,32 @@ function PushNotificationManager() {
   }, [profile?.id]);
 
   useEffect(() => {
-    const subscription = Notifications.addNotificationResponseReceivedListener(response => {
+    const subscription = Notifications.addNotificationResponseReceivedListener(async (response) => {
+      const actionId = response.actionIdentifier;
+      const userText = response.userText;
       const data = response.notification.request.content.data;
+
+      // 1. Handle Quick Reply
+      if (actionId === 'reply' && userText) {
+        console.log('Reply from notification:', userText);
+        const receiverId = data?.referenceId;
+
+        if (receiverId) {
+          const { data: authData } = await supabase.auth.getUser();
+          const senderId = authData?.user?.id;
+
+          if (senderId) {
+            await supabase.from('messages').insert({
+              sender_id: senderId,
+              receiver_id: receiverId,
+              content: userText,
+            });
+          }
+        }
+        return; // Stop processing deep links if we just replied
+      }
+
+      // 2. Handle Deep Links
       if (data?.link && navigationRef.isReady()) {
         if (data.link.startsWith('/post/')) {
           const postId = data.link.replace('/post/', '');
@@ -74,10 +99,10 @@ export default function App() {
 
       // 2. Handle Standard Deep Links
       if (!navigationRef.isReady()) return;
-      
+
       const path = url.replace('https://luconnect.app', '').replace('luconnect://', '');
       const parts = path.split('/').filter(Boolean);
-      
+
       if (parts[0] === 'profile' && parts[1]) navigationRef.navigate('Profile', { id: parts[1] });
       else if (parts[0] === 'reel' && parts[1]) navigationRef.navigate('Video', { startReelId: parts[1] });
       else if (parts[0] === 'post' && parts[1]) navigationRef.navigate('PostDetail', { id: parts[1] });
