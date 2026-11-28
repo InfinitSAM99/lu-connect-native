@@ -11,3 +11,7 @@ ios/
 *.orig.*
 web-build/
 dist/
+.expo/
+dist/
+android/
+ios/
