@@ -11,14 +11,15 @@ const { width: SCREEN_W } = Dimensions.get('window');
 
 export default function HallOfFameScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
-
+  
   const { data: leaders, isLoading } = useQuery({
     queryKey: ['leaderboard'],
     queryFn: async () => {
+      // Fetch top 15 from the view
       const { data, error } = await supabase
         .from('leaderboard_view')
         .select('*')
-        .limit(5);
+        .limit(15);
       if (error) throw error;
       return data || [];
     },
@@ -36,7 +37,6 @@ export default function HallOfFameScreen({ navigation }: any) {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-
         {(!leaders || leaders.length === 0) && (
           <Text style={{ color: '#6d7382', textAlign: 'center', marginTop: 40 }}>No winners announced yet.</Text>
         )}
@@ -47,6 +47,9 @@ export default function HallOfFameScreen({ navigation }: any) {
           const nameParts = (item.full_name || '').split(' ');
           const firstName = nameParts[0];
           const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+          
+          // Handle wins array (Postgres returns it as an array)
+          const hasWins = Array.isArray(item.wins) && item.wins.length > 0;
 
           return (
             <View key={item.id || index} style={styles.card}>
@@ -64,7 +67,14 @@ export default function HallOfFameScreen({ navigation }: any) {
                 <Text style={styles.awardText}>{rankLabel}</Text>
               </View>
 
-              {/* 🔥 GOLD RING AVATAR (Top Right) */}
+              {/* Crown Badge (if they have won before) */}
+              {hasWins && (
+                <View style={styles.crownBadge}>
+                  <Text style={styles.crownText}>👑 {item.wins.join(', ')} WINNER</Text>
+                </View>
+              )}
+
+              {/* Gold Ring Avatar (Top Right) */}
               <View style={styles.topRightAvatar}>
                 <PremiumAvatar avatarUrl={item.avatar_url} fullName={item.full_name} tier={item.subscription_tier || 'premium'} size={56} />
               </View>
@@ -73,9 +83,17 @@ export default function HallOfFameScreen({ navigation }: any) {
               <View style={styles.bottomInfo}>
                 <Text style={styles.firstName}>{firstName}</Text>
                 {lastName ? <Text style={styles.lastName}>{lastName.toUpperCase()}</Text> : null}
+                
                 <View style={styles.extraDataContainer}>
                   <Text style={styles.university}>{item.university_name || 'LU Connect Student'}</Text>
-                  <Text style={styles.stat}>{item.followers || 0} Followers · {item.likes || 0} Likes · Score {item.total_score || 0}</Text>
+                  
+                  {/* Big Score */}
+                  <Text style={styles.bigScore}>{Math.round(item.total_score || 0)}%</Text>
+                  
+                  {/* Sub-stats */}
+                  <Text style={styles.stat}>
+                    {item.followers || 0} Followers · {item.likes || 0} Likes · {item.comments || 0} Comments
+                  </Text>
                 </View>
               </View>
 
@@ -112,7 +130,9 @@ const styles = StyleSheet.create({
   awardBadge: { position: 'absolute', top: 20, left: 24, flexDirection: 'row', alignItems: 'center', backgroundColor: '#E5C07B', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, gap: 6 },
   awardText: { color: '#000', fontSize: 10, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
 
-  // 🔥 Top Right Avatar Box
+  crownBadge: { position: 'absolute', top: 60, left: 24, backgroundColor: '#000', borderWidth: 1, borderColor: '#E5C07B', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  crownText: { color: '#E5C07B', fontSize: 11, fontWeight: '800', letterSpacing: 0.5 },
+
   topRightAvatar: { position: 'absolute', top: 20, right: 24 },
 
   bottomInfo: { position: 'absolute', bottom: 35, left: 24, right: 70 },
@@ -121,7 +141,8 @@ const styles = StyleSheet.create({
 
   extraDataContainer: { marginTop: 16 },
   university: { color: '#E5C07B', fontSize: 13, fontWeight: '600', marginTop: 2 },
-  stat: { color: '#8892A4', fontSize: 12, marginTop: 4 },
+  bigScore: { color: '#fff', fontSize: 48, fontWeight: '900', marginTop: 8, textShadowColor: 'rgba(0,0,0,0.9)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 8 },
+  stat: { color: '#8892A4', fontSize: 13, marginTop: 4, fontWeight: '500' },
 
   arrowButton: { position: 'absolute', bottom: 35, right: 20, width: 48, height: 48, borderRadius: 24, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.7)', alignItems: 'center', justifyContent: 'center' },
 });

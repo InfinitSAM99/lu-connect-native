@@ -83,7 +83,7 @@ export async function enrichPosts(rows: Row[], myId: string | null) {
     ...p,
     profiles: authorMap[p.author_id!] || p.profiles || null,
     post_media: mediaMap[p.id] || p.post_media || [],
-    upvotes: upvotesMap[p.id] || 0,
+    upvotes: (upvotesMap[p.id] || 0) + (p.bot_like_count || 0) + (p.like_count || 0),
     downvotes: downvotesMap[p.id] || 0,
     my_vote: myVoteMap[p.id] || null,
     saved: savedSet.has(p.id),

@@ -9,8 +9,6 @@ import VerifiedBadge from './VerifiedBadge';
 import { tapLight, tapHeavy } from '../lib/haptics';
 
 const { width: SCREEN_W } = Dimensions.get('window');
-const CARD_H_PADDING = 32;
-const MEDIA_W = SCREEN_W - CARD_H_PADDING;
 const COLLAPSE_CHAR_LIMIT = 280;
 
 function timeAgo(date: string) {
@@ -46,24 +44,36 @@ export default function PostCard({ post, onUpdate, onCommentOpen, onMenu, onPres
   const isAnon = !!post?.is_anonymous;
   const author = isAnon ? { id: null, full_name: 'Anonymous Student', avatar_url: null, is_verified: false } : post?.profiles;
   const media = post?.post_media || [];
-  const comments = post?.comment_count || 0;
   
+  // 🔥 FIXED: Combine real user actions with bot counts
+  const totalComments = (post?.comment_count || 0) + (post?.bot_comment_count || 0);
+
   const [myVote, setMyVote] = useState<string | null>(post?.my_vote || null);
   const [upvotes, setUpvotes] = useState(post?.upvotes || 0);
   const [downvotes, setDownvotes] = useState(post?.downvotes || 0);
   const [expanded, setExpanded] = useState(false);
   
+  const [aspectRatios, setAspectRatios] = useState<{ [key: string]: number }>({});
+
   const contentLong = (post?.content || '').length > COLLAPSE_CHAR_LIMIT;
 
-  // Animations
   const upAnim = useRef(new Animated.Value(1)).current;
   const downAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    if (post?.upvotes !== undefined) setUpvotes(post.upvotes);
+    // 🔥 FIXED: Update state with combined counts
+    if (post?.upvotes !== undefined || post?.bot_like_count !== undefined) {
+      setUpvotes(post?.upvotes || 0);
+    }
     if (post?.downvotes !== undefined) setDownvotes(post.downvotes);
     if (post?.my_vote !== undefined) setMyVote(post.my_vote);
-  }, [post?.upvotes, post?.downvotes, post?.my_vote]);
+    
+    media.forEach((m: any) => {
+      Image.getSize(m.media_url, (width, height) => {
+        setAspectRatios(prev => ({ ...prev, [m.id]: width / height }));
+      }, (err) => console.log('Failed to get image size', err));
+    });
+  }, [post?.upvotes, post?.downvotes, post?.my_vote, post?.bot_like_count, media]);
 
   const animateLike = () => {
     Animated.sequence([
@@ -95,6 +105,7 @@ export default function PostCard({ post, onUpdate, onCommentOpen, onMenu, onPres
     const previousUp = upvotes;
     const previousDown = downvotes;
 
+    // Local state updates (includes bots implicitly since `upvotes` state already has them)
     if (isRemoving) {
       setMyVote(null);
       if (type === 'up') setUpvotes(upvotes - 1);
@@ -143,8 +154,7 @@ export default function PostCard({ post, onUpdate, onCommentOpen, onMenu, onPres
   };
 
   const mediaCount = media.length;
-  const singleImageHeight = Math.min(MEDIA_W * 1.2, SCREEN_W * 0.95);
-  const gridItemSize = (MEDIA_W - 4) / 2;
+  const gridItemSize = (SCREEN_W - 4) / 2;
 
   return (
     <View style={styles.card}>
@@ -175,7 +185,7 @@ export default function PostCard({ post, onUpdate, onCommentOpen, onMenu, onPres
       </View>
 
       {!!post.content && (
-        <View style={{ paddingHorizontal: 4, marginBottom: 10 }}>
+        <View style={{ paddingHorizontal: 16, marginBottom: 10 }}>
           <Text style={styles.content}>
             {renderTextWithMentions(contentLong && !expanded ? post.content.slice(0, COLLAPSE_CHAR_LIMIT) + '…' : post.content)}
           </Text>
@@ -191,16 +201,25 @@ export default function PostCard({ post, onUpdate, onCommentOpen, onMenu, onPres
 
       {mediaCount > 0 && (
         <View style={styles.mediaContainer}>
-          {mediaCount === 1 && (
-            <TouchableOpacity activeOpacity={1} onPress={() => onPress?.()}>
-              <Image source={{ uri: media[0].media_url }} style={{ width: MEDIA_W, height: singleImageHeight, borderRadius: 12 }} resizeMode="cover" />
-            </TouchableOpacity>
-          )}
+          {mediaCount === 1 && (() => {
+            const ratio = aspectRatios[media[0].id];
+            const displayHeight = ratio ? (SCREEN_W / ratio) : (SCREEN_W * 1.25); 
+            return (
+              <TouchableOpacity activeOpacity={1} onPress={() => onPress?.()}>
+                <Image 
+                  source={{ uri: media[0].media_url }} 
+                  style={{ width: SCREEN_W, height: displayHeight }} 
+                  resizeMode="contain" 
+                  backgroundColor="#000" 
+                />
+              </TouchableOpacity>
+            );
+          })()}
           {mediaCount >= 2 && (
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, width: MEDIA_W }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, width: SCREEN_W }}>
               {media.slice(0, 4).map((m: any) => (
                 <TouchableOpacity activeOpacity={1} key={m.id} onPress={() => onPress?.()}>
-                  <Image source={{ uri: m.media_url }} style={{ width: gridItemSize, height: gridItemSize, borderRadius: 8 }} resizeMode="cover" />
+                  <Image source={{ uri: m.media_url }} style={{ width: gridItemSize, height: gridItemSize }} resizeMode="cover" />
                 </TouchableOpacity>
               ))}
             </View>
@@ -210,51 +229,31 @@ export default function PostCard({ post, onUpdate, onCommentOpen, onMenu, onPres
 
       {/* ACTIONS */}
       <View style={styles.actions}>
-        {/* LIKE (THUMBS UP) */}
-        <TouchableOpacity
-          activeOpacity={1}
-          onPress={() => handleVote('up')}
-          style={[styles.actionBtn, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}
-        >
+        <TouchableOpacity activeOpacity={1} onPress={() => handleVote('up')} style={[styles.actionBtn, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}>
           <Animated.View style={{ transform: [{ scale: upAnim }] }}>
-            <ThumbsUp
-              size={20}
-              color={myVote === 'up' ? '#ef4444' : '#ffffff'}
-              fill={myVote === 'up' ? '#ef4444' : 'transparent'}
-            />
+            <ThumbsUp size={20} color={myVote === 'up' ? '#ef4444' : '#ffffff'} fill={myVote === 'up' ? '#ef4444' : 'transparent'} />
           </Animated.View>
           <Text style={{ color: myVote === 'up' ? '#ef4444' : '#ffffff', fontSize: 13, fontWeight: '600' }}>
             {upvotes}
           </Text>
         </TouchableOpacity>
 
-        {/* DISLIKE (THUMBS DOWN) */}
-        <TouchableOpacity
-          activeOpacity={1}
-          onPress={() => handleVote('down')}
-          style={[styles.actionBtn, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}
-        >
+        <TouchableOpacity activeOpacity={1} onPress={() => handleVote('down')} style={[styles.actionBtn, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}>
           <Animated.View style={{ transform: [{ scale: downAnim }] }}>
-            <ThumbsDown
-              size={20}
-              color={myVote === 'down' ? '#f59e0b' : '#ffffff'}
-              fill={myVote === 'down' ? '#f59e0b' : 'transparent'}
-            />
+            <ThumbsDown size={20} color={myVote === 'down' ? '#f59e0b' : '#ffffff'} fill={myVote === 'down' ? '#f59e0b' : 'transparent'} />
           </Animated.View>
           <Text style={{ color: myVote === 'down' ? '#f59e0b' : '#ffffff', fontSize: 13, fontWeight: '600' }}>
             {downvotes}
           </Text>
         </TouchableOpacity>
 
-        {/* COMMENT */}
         <TouchableOpacity activeOpacity={1} onPress={() => onCommentOpen?.(post)} style={[styles.actionBtn, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}>
           <Ionicons name="chatbubble-outline" size={22} color="#ffffff" />
           <Text style={{ color: '#ffffff', fontSize: 13, fontWeight: '600' }}>
-            {comments}
+            {totalComments}
           </Text>
         </TouchableOpacity>
 
-        {/* SHARE */}
         <TouchableOpacity activeOpacity={1} style={[styles.actionBtn, { flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: 'auto' }]}>
           <Ionicons name="arrow-redo-outline" size={22} color="#ffffff" />
         </TouchableOpacity>
@@ -264,13 +263,13 @@ export default function PostCard({ post, onUpdate, onCommentOpen, onMenu, onPres
 }
 
 const styles = StyleSheet.create({
-  card: { paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#1f1f1f', backgroundColor: '#000' },
-  header: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  card: { paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#1f1f1f', backgroundColor: '#000' },
+  header: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, paddingHorizontal: 16 }, 
   avatar: { width: 40, height: 40, borderRadius: 20 },
   name: { fontSize: 14, fontWeight: '600', color: '#fff' },
   time: { fontSize: 12, color: '#6d7382', marginTop: 2 },
   content: { fontSize: 15, color: '#fff', lineHeight: 22 },
-  mediaContainer: { marginBottom: 10, alignItems: 'flex-start' },
-  actions: { flexDirection: 'row', gap: 20, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#1f1f1f', marginTop: 4 },
+  mediaContainer: { marginBottom: 10, marginHorizontal: -16, alignItems: 'center' }, 
+  actions: { flexDirection: 'row', gap: 20, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#1f1f1f', marginTop: 4, paddingHorizontal: 16 },
   actionBtn: { padding: 4 },
 });

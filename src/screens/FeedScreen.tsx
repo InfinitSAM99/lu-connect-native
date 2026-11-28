@@ -1,15 +1,13 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, RefreshControl, Alert, TouchableOpacity, Modal, Keyboard, ScrollView, Image, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
-import { redis } from '../lib/redis';
 import { useAuth } from '../context/AuthContext';
 import UniversityPickerScreen from './UniversityPickerScreen';
 import PostComposer from '../components/PostComposer';
-import UploadReelModal from '../components/UploadReelModal';
 import PostCard from '../components/PostCard';
 import { StoriesCarousel } from '../components/StoriesCarousel';
 import { fetchActiveStories, fetchMyStory } from '../lib/stories';
@@ -17,11 +15,9 @@ import CommentDrawer from '../components/CommentDrawer';
 import { FlashList } from '@shopify/flash-list';
 import LULogo from '../components/LULogo';
 import FastButton from '../components/FastButton';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import TopNav from '../components/TopNav';
 
-const FEED_DAYS = 30;
-const POOL_SIZE = 150;
+const PAGE_SIZE = 20; // Increased from 15
 
 async function enrichPosts(rows: any[], myId: string) {
   if (!Array.isArray(rows) || rows.length === 0) return [];
@@ -40,16 +36,16 @@ async function enrichPosts(rows: any[], myId: string) {
   (authorsRes.data || []).forEach((a: any) => { authorMap[a.id] = a; });
   const mediaMap: any = {};
   (mediaRes.data || []).forEach((m: any) => { if (!mediaMap[m.post_id]) mediaMap[m.post_id] = []; mediaMap[m.post_id].push(m); });
-  
+
   const upvotesMap: any = {};
   const downvotesMap: any = {};
   const myVoteMap: any = {};
-  
+
   (reactionsRes.data || []).forEach((r: any) => {
     const type = r.reaction_type;
     if (type === 'up') upvotesMap[r.post_id] = (upvotesMap[r.post_id] || 0) + 1;
     else if (type === 'down') downvotesMap[r.post_id] = (downvotesMap[r.post_id] || 0) + 1;
-    
+
     if (myId && r.user_id === myId) {
       myVoteMap[r.post_id] = type === 'up' ? 'up' : type === 'down' ? 'down' : null;
     }
@@ -64,7 +60,7 @@ async function enrichPosts(rows: any[], myId: string) {
     ...p,
     profiles: authorMap[p.author_id] || null,
     post_media: mediaMap[p.id] || [],
-    upvotes: upvotesMap[p.id] || 0,
+    upvotes: (upvotesMap[p.id] || 0) + (p.bot_like_count || 0) + (p.like_count || 0),
     downvotes: downvotesMap[p.id] || 0,
     my_vote: myVoteMap[p.id] || null,
     saved: savedSet.has(p.id),
@@ -72,29 +68,19 @@ async function enrichPosts(rows: any[], myId: string) {
   }));
 }
 
-async function fetchFeedData(myId: string, universityId: string | 'all' | 'mine', myUniversityId: string | undefined, residence?: string) {
-  const cacheKey = `feed:${myId}:${universityId}:v2`;
-  try {
-    const cached = await redis.get(cacheKey);
-    if (cached) {
-      console.log('Serving feed from Redis cache (v2)');
-      return cached as any[];
-    }
-  } catch (e) {
-    console.log('Redis unavailable, falling back to database');
-  }
-
-  const since = new Date(Date.now() - FEED_DAYS * 24 * 60 * 60 * 1000).toISOString();
-
+async function fetchFeedData(myId: string, universityId: string | 'all' | 'mine', myUniversityId: string | undefined, pageParam: any, residence?: string) {
   let postsQuery = supabase
     .from('posts')
     .select('*')
     .eq('is_deleted', false)
     .neq('author_id', myId)
     .is('shared_post_id', null)
-    .gte('created_at', since)
     .order('created_at', { ascending: false })
-    .limit(POOL_SIZE);
+    .limit(PAGE_SIZE);
+
+  if (pageParam) {
+    postsQuery = postsQuery.lt('created_at', pageParam);
+  }
 
   if (universityId === 'mine' && myUniversityId) {
     postsQuery = postsQuery.eq('university_id', myUniversityId);
@@ -107,19 +93,15 @@ async function fetchFeedData(myId: string, universityId: string | 'all' | 'mine'
     supabase.from('connections').select('requester_id, receiver_id').eq('status', 'accepted').or(`requester_id.eq.${myId},receiver_id.eq.${myId}`),
     supabase.from('boosts').select('post_id, expires_at').eq('status', 'active'),
     supabase.from('hidden_posts').select('post_id').eq('user_id', myId),
-    supabase.from('blocked_users').select('blocked_id').eq('blocker_id', myId), // 🔥 NEW
+    supabase.from('blocked_users').select('blocked_id').eq('blocker_id', myId),
   ]);
 
   const hiddenIds = new Set((hiddenRes.data || []).map((h: any) => h.post_id));
-  const blockedIds = new Set((blockedRes.data || []).map((b: any) => b.blocked_id)); // 🔥 NEW
-  
-  let rawPosts = Array.isArray(postsRes.data) 
-    ? postsRes.data.filter((p: any) => !hiddenIds.has(p.id) && !blockedIds.has(p.author_id)) 
+  const blockedIds = new Set((blockedRes.data || []).map((b: any) => b.blocked_id));
+
+  let rawPosts = Array.isArray(postsRes.data)
+    ? postsRes.data.filter((p: any) => !hiddenIds.has(p.id) && !blockedIds.has(p.author_id))
     : [];
-  for (let i = rawPosts.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [rawPosts[i], rawPosts[j]] = [rawPosts[j], rawPosts[i]];
-  }
 
   const friendIds = new Set((connectionsRes.data || []).map((c: any) => c.requester_id === myId ? c.receiver_id : c.requester_id));
   const now = Date.now();
@@ -142,18 +124,14 @@ async function fetchFeedData(myId: string, universityId: string | 'all' | 'mine'
     return { ...p, _score: score };
   });
 
-  scoredPosts.sort((a: any, b: any) => b._score - a._score);
-
-  try {
-    await redis.setex(cacheKey, 60, scoredPosts);
-  } catch (e) {
-    console.log('Redis SAVE ERROR:', (e as any)?.message || e);
+  // Only sort by score for the FIRST page to mix things up
+  if (!pageParam) {
+    scoredPosts.sort((a: any, b: any) => b._score - a._score);
   }
 
   return scoredPosts;
 }
 
-// 🔥 SKELETON COMPONENT
 const SkeletonPost = () => (
   <View style={{ paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#1f1f1f', backgroundColor: '#000' }}>
     <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
@@ -165,7 +143,7 @@ const SkeletonPost = () => (
     </View>
     <View style={{ width: '90%', height: 14, borderRadius: 4, backgroundColor: '#1f1f1f', marginBottom: 6 }} />
     <View style={{ width: '60%', height: 14, borderRadius: 4, backgroundColor: '#1f1f1f', marginBottom: 12 }} />
-    <View style={{ width: '100%', height: 240, borderRadius: 12, backgroundColor: '#1f1f1f', marginBottom: 12 }} />
+    <View style={{ width: '100%', height: 240, backgroundColor: '#1f1f1f', marginBottom: 12 }} />
     <View style={{ flexDirection: 'row', gap: 20 }}>
       <View style={{ width: 40, height: 20, borderRadius: 4, backgroundColor: '#1f1f1f' }} />
       <View style={{ width: 40, height: 20, borderRadius: 4, backgroundColor: '#1f1f1f' }} />
@@ -175,9 +153,8 @@ const SkeletonPost = () => (
 );
 
 export default function FeedScreen({ navigation, route }: any) {
-  
-
   const { profile, reloadProfile, navType } = useAuth();
+
 
   useEffect(() => {
     if (profile && profile.approval_status === 'approved') {
@@ -186,7 +163,9 @@ export default function FeedScreen({ navigation, route }: any) {
       }
     }
   }, [profile]);
+  
   const queryClient = useQueryClient();
+  const flashListRef = useRef<any>(null);
   const insets = useSafeAreaInsets();
   const myId = profile?.id;
 
@@ -196,16 +175,12 @@ export default function FeedScreen({ navigation, route }: any) {
   const [stickyPostId, setStickyPostId] = useState<string | null>(null);
   const [initialAnonymous, setInitialAnonymous] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const [visibleCount, setVisibleCount] = useState(15);
 
   const [filterUniversity, setFilterUniversity] = useState<string>('all');
   const [filterLabel, setFilterLabel] = useState<string>('All Universities');
   const [showUniModal, setShowUniModal] = useState(false);
-
-  // ADMIN STATES
   const [showAdminModal, setShowAdminModal] = useState(false);
-  
-  const [showReelUpload, setShowReelUpload] = useState(false);
+
   const [showCreateMenu, setShowCreateMenu] = useState(false);
   const [adminCode, setAdminCode] = useState('');
   const [adminError, setAdminError] = useState('');
@@ -221,6 +196,7 @@ export default function FeedScreen({ navigation, route }: any) {
     }
   };
 
+
   useEffect(() => {
     if (route?.params?.openComposer) {
       setComposerOpen(true);
@@ -229,22 +205,50 @@ export default function FeedScreen({ navigation, route }: any) {
     }
   }, [route?.params?.openComposer]);
 
+
+  useEffect(() => {
+    if (route?.params?.highlightPostId && posts.length > 0) {
+      const targetId = route.params.highlightPostId;
+      const index = posts.findIndex((p: any) => p.id === targetId);
+      
+      if (index !== -1) {
+        setTimeout(() => {
+          try {
+            flashListRef.current?.scrollToIndex({ 
+              index, 
+              animated: true, 
+              viewPosition: 0.5 
+            });
+          } catch (e) {
+            console.log('Scroll failed', e);
+          }
+        }, 800); // Increased delay to ensure FlashList is ready
+      } else {
+        console.log('Post not found in current feed. It might be on an older page.');
+      }
+      
+      navigation.setParams({ highlightPostId: undefined });
+    }
+  }, [route?.params?.highlightPostId, posts]);
+
   useEffect(() => {
     const showSub = Keyboard.addListener('keyboardDidShow', (e) => setKeyboardHeight(e.endCoordinates.height));
     const hideSub = Keyboard.addListener('keyboardDidHide', () => setKeyboardHeight(0));
     return () => { showSub.remove(); hideSub.remove(); };
   }, []);
 
-  const feedQuery = useQuery({
+  // 🔥 INFINITE QUERY IMPLEMENTATION
+  const feedQuery = useInfiniteQuery({
     queryKey: ['feed', myId, filterUniversity],
     enabled: !!myId,
     staleTime: 1000 * 60 * 5,
-    gcTime: 1000 * 60 * 30,
-    placeholderData: (previousData: any) => previousData,
-    queryFn: () => fetchFeedData(myId!, filterUniversity, profile?.university_id, profile?.residence),
+    initialPageParam: null,
+    queryFn: ({ pageParam }) => fetchFeedData(myId!, filterUniversity, profile?.university_id, pageParam, profile?.residence),
+    getNextPageParam: (lastPage) => {
+      if (!lastPage || lastPage.length < PAGE_SIZE) return undefined;
+      return lastPage[lastPage.length - 1].created_at;
+    },
   });
-
-  useEffect(() => { setVisibleCount(15); }, [filterUniversity]);
 
   const eventsQuery = useQuery({
     queryKey: ['events-horizontal'],
@@ -270,27 +274,17 @@ export default function FeedScreen({ navigation, route }: any) {
     },
   });
 
-  const { data: leaderboard } = useQuery({
-    queryKey: ['feed-leaderboard'],
-    enabled: !!myId,
-    staleTime: 60000,
-    queryFn: async () => {
-      const { data } = await supabase.from('leaderboard_view').select('*').limit(1);
-      return data?.[0] || null;
-    },
-  });
-
   const upcomingEvents = eventsQuery.data || [];
   const suggestions = suggestionsQuery.data || [];
 
   useFocusEffect(React.useCallback(() => { if (myId) feedQuery.refetch(); }, [myId]));
 
-  const allPosts = feedQuery.data || [];
+  // Flatten the paginated data
+  const allPosts = feedQuery.data?.pages.flat() || [];
   const stickyPost = stickyPostId ? allPosts.find((p: any) => p.id === stickyPostId) : null;
   const otherPosts = stickyPostId ? allPosts.filter((p: any) => p.id !== stickyPostId) : allPosts;
-  const posts = (stickyPost ? [stickyPost, ...otherPosts] : otherPosts).slice(0, visibleCount);
-  
-  // 🔥 FIXED LOADING LOGIC: Only show skeleton if we have NO data at all
+  const posts = stickyPost ? [stickyPost, ...otherPosts] : otherPosts;
+
   const isLoading = feedQuery.isLoading && posts.length === 0;
   const error = feedQuery.error?.message;
 
@@ -308,13 +302,24 @@ export default function FeedScreen({ navigation, route }: any) {
   const myStories = storiesQuery.data?.my || [];
   const friendsStories = storiesQuery.data?.friends || [];
 
-
   const handlePostUpdate = useCallback((postId: string, updates: any) => {
-    queryClient.setQueryData(['feed', myId, filterUniversity], (old: any) => Array.isArray(old) ? old.map((p: any) => p.id === postId ? { ...p, ...updates } : p) : old);
+    queryClient.setQueryData(['feed', myId, filterUniversity], (old: any) => {
+      if (!old) return old;
+      return {
+        ...old,
+        pages: old.pages.map((page: any[]) => page.map((p: any) => p.id === postId ? { ...p, ...updates } : p))
+      };
+    });
   }, [myId, filterUniversity, queryClient]);
 
   const handlePostDelete = useCallback((postId: string) => {
-    queryClient.setQueryData(['feed', myId, filterUniversity], (old: any) => Array.isArray(old) ? old.filter((p: any) => p.id !== postId) : old);
+    queryClient.setQueryData(['feed', myId, filterUniversity], (old: any) => {
+      if (!old) return old;
+      return {
+        ...old,
+        pages: old.pages.map((page: any[]) => page.filter((p: any) => p.id !== postId))
+      };
+    });
   }, [myId, filterUniversity, queryClient]);
 
   const handleNewPost = async () => {
@@ -326,9 +331,13 @@ export default function FeedScreen({ navigation, route }: any) {
       const { data: fullPost } = await supabase.from('posts').select('*, post_media(*)').eq('id', data.id).maybeSingle();
       if (fullPost) {
         queryClient.setQueryData(['feed', myId, filterUniversity], (old: any) => {
-          if (!Array.isArray(old)) return [fullPost];
-          if (old.some((p: any) => p.id === fullPost.id)) return old;
-          return [fullPost, ...old];
+          if (!old) return { pages: [[fullPost]], pageParams: [null] };
+          const firstPage = old.pages[0] || [];
+          if (firstPage.some((p: any) => p.id === fullPost.id)) return old;
+          return {
+            ...old,
+            pages: [[fullPost, ...firstPage], ...old.pages.slice(1)]
+          };
         });
       }
       setTimeout(async () => {
@@ -341,13 +350,11 @@ export default function FeedScreen({ navigation, route }: any) {
   };
 
   const refreshFeed = async () => {
-    setVisibleCount(15);
-    await queryClient.invalidateQueries({ queryKey: ['feed', myId, filterUniversity] });
     await feedQuery.refetch();
   };
 
-  const selectMine = () => { setFilterUniversity('mine'); setFilterLabel('My University'); setVisibleCount(15); };
-  const selectAll = () => { setFilterUniversity('all'); setFilterLabel('All Universities'); setVisibleCount(15); };
+  const selectMine = () => { setFilterUniversity('mine'); setFilterLabel('My University'); };
+  const selectAll = () => { setFilterUniversity('all'); setFilterLabel('All Universities'); };
 
   const handleDelete = (post: any) => {
     setMenuPost(null);
@@ -377,7 +384,7 @@ export default function FeedScreen({ navigation, route }: any) {
     setMenuPost(null);
     try {
       await supabase.from('hidden_posts').insert({ user_id: myId, post_id: post.id });
-      queryClient.setQueryData(['feed', myId, filterUniversity], (old: any) => Array.isArray(old) ? old.filter((p: any) => p.id !== post.id) : old);
+      handlePostDelete(post.id);
     } catch (e: any) {
       Alert.alert('Error', e.message);
     }
@@ -396,8 +403,6 @@ export default function FeedScreen({ navigation, route }: any) {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000', position: 'relative' }}>
-
-      {/* HEADER */}
       <View style={[styles.stickyHeader, { paddingTop: Math.max(insets.top, 12), borderBottomWidth: 0, marginBottom: 0 }]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <LULogo size={36} animate={false} />
@@ -420,7 +425,6 @@ export default function FeedScreen({ navigation, route }: any) {
 
       {navType === 'top' && <TopNav activeRoute="Feed" />}
 
-      {/* FILTER BAR */}
       <View style={{ backgroundColor: '#000' }}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 10, gap: 8 }}>
           <FastButton style={[styles.filterPill, filterUniversity === 'mine' && styles.filterPillActive]} onPress={selectMine}>
@@ -445,10 +449,6 @@ export default function FeedScreen({ navigation, route }: any) {
         </ScrollView>
       </View>
 
-
-      {/* TOP STORIES CAROUSEL */}
-      
-
       {isLoading ? (
         <ScrollView showsVerticalScrollIndicator={false}>
           <SkeletonPost />
@@ -464,13 +464,17 @@ export default function FeedScreen({ navigation, route }: any) {
         </View>
       ) : (
         <FlashList
-        ListHeaderComponent={<View style={{ paddingBottom: 10 }}><StoriesCarousel 
-        myStories={myStories}
-        friendsStories={friendsStories}
-        onAddStory={() => navigation.navigate('StoryComposer')}
-        onOpenMyStory={() => navigation.navigate('StoryViewer', { stories: myStories })}
-        onOpenFriendStory={(stories: any) => navigation.navigate('StoryViewer', { stories })}
-      /></View>}
+          ref={flashListRef}
+          onScrollToIndexFailed={(info) => {
+            console.log('Scroll to index failed', info);
+          }}
+          ListHeaderComponent={<View style={{ paddingBottom: 10 }}><StoriesCarousel
+            myStories={myStories}
+            friendsStories={friendsStories}
+            onAddStory={() => navigation.navigate('StoryComposer')}
+            onOpenMyStory={() => navigation.navigate('StoryViewer', { stories: myStories })}
+            onOpenFriendStory={(stories: any) => navigation.navigate('StoryViewer', { stories })}
+          /></View>}
           style={{ backgroundColor: '#000' }}
           data={posts}
           renderItem={({ item, index }: any) => {
@@ -480,9 +484,9 @@ export default function FeedScreen({ navigation, route }: any) {
             return (
               <View style={{ backgroundColor: '#000' }}>
                 {renderPost({ item, index })}
-                
+
                 {showStoriesAgain && (
-                  <StoriesCarousel 
+                  <StoriesCarousel
                     myStories={myStories}
                     friendsStories={friendsStories}
                     onAddStory={() => navigation.navigate('StoryComposer')}
@@ -538,7 +542,11 @@ export default function FeedScreen({ navigation, route }: any) {
             );
           }}
           keyExtractor={(item: any) => item.id}
-          onEndReached={() => { if (visibleCount < allPosts.length) setVisibleCount(v => v + 15); }}
+          onEndReached={() => {
+            if (feedQuery.hasNextPage && !feedQuery.isFetchingNextPage) {
+              feedQuery.fetchNextPage();
+            }
+          }}
           onEndReachedThreshold={0.5}
           ListEmptyComponent={
             <View style={styles.emptyBox}>
@@ -548,22 +556,20 @@ export default function FeedScreen({ navigation, route }: any) {
             </View>
           }
           contentContainerStyle={{ paddingBottom: 120 + insets.bottom }}
-          refreshControl={<RefreshControl refreshing={feedQuery.isRefetching} onRefresh={refreshFeed} tintColor="#ef4444" colors={['#ef4444']} progressBackgroundColor="#0a0a0a" />}
+          refreshControl={<RefreshControl refreshing={feedQuery.isRefetching && !feedQuery.isFetchingNextPage} onRefresh={refreshFeed} tintColor="#ef4444" colors={['#ef4444']} progressBackgroundColor="#0a0a0a" />}
           initialNumToRender={6}
           maxToRenderPerBatch={6}
           windowSize={15}
           removeClippedSubviews={false}
           updateCellsBatchingPeriod={50}
           showsVerticalScrollIndicator={false}
-          ListFooterComponent={visibleCount < allPosts.length ? (<View style={{ padding: 20, alignItems: 'center' }}><ActivityIndicator color="#ef4444" /></View>) : allPosts.length > 0 ? (<Text style={{ textAlign: 'center', color: '#6d7382', padding: 20, fontSize: 13 }}>You're all caught up 🎉</Text>) : null}
+          ListFooterComponent={feedQuery.isFetchingNextPage ? (<View style={{ padding: 20, alignItems: 'center' }}><ActivityIndicator color="#ef4444" /></View>) : !feedQuery.hasNextPage && posts.length > 0 ? (<Text style={{ textAlign: 'center', color: '#6d7382', padding: 20, fontSize: 13 }}>You're all caught up 🎉</Text>) : null}
         />
       )}
 
-      {/* COMPOSER MODAL */}
       <Modal visible={composerOpen} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setComposerOpen(false)}>
         <View style={{ flex: 1, backgroundColor: '#000' }}>
           <View style={{ flex: 1 }}>
-            
             <PostComposer onPosted={handleNewPost} onClose={() => setComposerOpen(false)} initialAnonymous={initialAnonymous} />
           </View>
         </View>
@@ -599,24 +605,15 @@ export default function FeedScreen({ navigation, route }: any) {
           onSelect={(item: any) => {
             setFilterUniversity(item.id);
             setFilterLabel(item.name);
-            setVisibleCount(15);
             setShowUniModal(false);
           }}
           onClose={() => setShowUniModal(false)}
         />
       </Modal>
 
-
-      
-
-      {/* CREATE MENU */}
-      
-
-      {/* ADMIN SECRET CODE MODAL */}
       <Modal visible={showAdminModal} transparent animationType="fade">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.adminModalContainer}>
           <ScrollView contentContainerStyle={styles.adminModalContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-
             <View style={styles.logoWrapper}>
               <View style={styles.logoGlow} />
               <View style={styles.logoBox}>
@@ -624,9 +621,7 @@ export default function FeedScreen({ navigation, route }: any) {
               </View>
               <Text style={styles.logoTextConnect}>LU CONNECT</Text>
             </View>
-
             <View style={styles.adminDivider} />
-
             <View style={styles.adminProfileWrap}>
               {profile?.avatar_url ? (
                 <Image source={{ uri: profile.avatar_url }} style={styles.adminAvatar} />
@@ -638,13 +633,10 @@ export default function FeedScreen({ navigation, route }: any) {
               <Text style={styles.adminName}>{profile?.full_name || 'Admin'}</Text>
               <Text style={styles.adminRole}>SUPER ADMIN</Text>
             </View>
-
             <View style={styles.inputWrap}>
               <Text style={styles.adminAccessTitle}>ADMIN ACCESS</Text>
               <Text style={styles.adminAccessSub}>Enter the secret code to unlock the hub.</Text>
-
               {adminError ? <Text style={styles.adminErrorText}>{adminError}</Text> : null}
-
               <TextInput
                 style={styles.adminInput}
                 placeholder="X X X X X X"
@@ -654,57 +646,36 @@ export default function FeedScreen({ navigation, route }: any) {
                 value={adminCode}
                 onChangeText={(t) => setAdminCode(t.toUpperCase())}
               />
-
               <TouchableOpacity onPress={checkAdminCode} style={styles.adminUnlockBtn} activeOpacity={0.8}>
                 <Text style={styles.adminUnlockText}>UNLOCK</Text>
                 <Ionicons name="arrow-forward" size={18} color="#fff" />
               </TouchableOpacity>
             </View>
-
             <TouchableOpacity onPress={() => { setShowAdminModal(false); setAdminCode(''); setAdminError(''); }} style={styles.adminCancelBtn}>
               <Text style={styles.adminCancelText}>Cancel</Text>
             </TouchableOpacity>
-
           </ScrollView>
         </KeyboardAvoidingView>
       </Modal>
 
-      
-      {/* TOGGLEABLE DARK ACTION BAR */}
       {showCreateMenu && (
         <View style={{ position: 'absolute', right: 16, top: insets.top + 70, backgroundColor: '#141414', borderRadius: 30, paddingVertical: 12, paddingHorizontal: 8, gap: 16, zIndex: 100, borderWidth: 1, borderColor: '#2a2a2a' }}>
-          
-          <TouchableOpacity 
-            style={{ alignItems: 'center' }}
-            onPress={() => { setShowCreateMenu(false); setComposerOpen(true); }}
-          >
+          <TouchableOpacity style={{ alignItems: 'center' }} onPress={() => { setShowCreateMenu(false); setComposerOpen(true); }}>
             <Ionicons name="create-outline" size={24} color="#fff" />
             <Text style={{ color: '#fff', fontSize: 10, marginTop: 4, fontWeight: '600' }}>Post</Text>
           </TouchableOpacity>
-
           <View style={{ height: 1, backgroundColor: '#2a2a2a', width: '80%', alignSelf: 'center' }} />
-
-          <TouchableOpacity 
-            style={{ alignItems: 'center' }}
-            onPress={() => { setShowCreateMenu(false); navigation.navigate('Events'); }}
-          >
+          <TouchableOpacity style={{ alignItems: 'center' }} onPress={() => { setShowCreateMenu(false); navigation.navigate('Events'); }}>
             <Ionicons name="calendar-outline" size={24} color="#fff" />
             <Text style={{ color: '#fff', fontSize: 10, marginTop: 4, fontWeight: '600' }}>Event</Text>
           </TouchableOpacity>
-
           <View style={{ height: 1, backgroundColor: '#2a2a2a', width: '80%', alignSelf: 'center' }} />
-
-          <TouchableOpacity 
-            style={{ alignItems: 'center' }}
-            onPress={() => { setShowCreateMenu(false); navigation.navigate('AcademicHub'); }}
-          >
+          <TouchableOpacity style={{ alignItems: 'center' }} onPress={() => { setShowCreateMenu(false); navigation.navigate('AcademicHub'); }}>
             <Ionicons name="school-outline" size={24} color="#fff" />
             <Text style={{ color: '#fff', fontSize: 10, marginTop: 4, fontWeight: '600' }}>Academic</Text>
           </TouchableOpacity>
-
         </View>
       )}
-
     </View>
   );
 }
@@ -733,7 +704,6 @@ const styles = StyleSheet.create({
   adminUnlockText: { color: '#fff', fontSize: 15, fontWeight: '800', letterSpacing: 2 },
   adminCancelBtn: { marginTop: 30, padding: 10 },
   adminCancelText: { color: '#6d7382', fontSize: 14, fontWeight: '600' },
-
   stickyHeader: {
     borderBottomWidth: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 14, backgroundColor: '#000', borderBottomWidth: 1, borderBottomColor: '#1f1f1f', zIndex: 100 },
   brandText: { fontSize: 26, fontWeight: '900', color: '#ef4444', letterSpacing: -1.2 },

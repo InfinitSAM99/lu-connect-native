@@ -72,7 +72,7 @@ export default function PostViewerScreen({ route, navigation }: any) {
 
     setPost({
       ...data,
-      upvotes: up,
+      upvotes: up + (data.bot_like_count || 0) + (data.like_count || 0),
       downvotes: down,
       my_vote: myVote,
       comment_count: count || 0,

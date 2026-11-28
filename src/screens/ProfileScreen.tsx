@@ -64,7 +64,7 @@ async function loadProfileData(profileId: string) {
     supabase.from('connections').select('*', { count: 'exact', head: true }).or(`and(requester_id.eq.${profileId},status.eq.accepted),and(receiver_id.eq.${profileId},status.eq.accepted)`),
     supabase.from('follows').select('*', { count: 'exact', head: true }).eq('following_id', profileId),
     supabase.from('follows').select('*', { count: 'exact', head: true }).eq('follower_id', profileId),
-    supabase.from('leaderboard_view').select('likes').eq('id', profileId).maybeSingle()
+    supabase.from('hall_of_fame_winners').select('year').eq('user_id', profileId).order('year', { ascending: false })
   ]);
 
   if (profileRes.error) throw new Error(profileRes.error.message);
@@ -77,6 +77,7 @@ async function loadProfileData(profileId: string) {
       realFollowers: followersRes.count || 0,
       following: followingRes.count || 0,
       totalLikes: totalLikesRes.data?.likes || 0,
+      wins: totalLikesRes.data || [],
     },
   };
 }
@@ -105,7 +106,7 @@ export default function ProfileScreen({ route, navigation }: any) {
 
   const profile = profileQuery.data?.profile || null;
   const reels = profileQuery.data?.reels || [];
-  const counts = profileQuery.data?.counts || { connections: 0, realFollowers: 0, following: 0, totalLikes: 0 };
+  const counts = profileQuery.data?.counts || { connections: 0, realFollowers: 0, following: 0, totalLikes: 0, wins: [] };
   const loading = profileQuery.isLoading;
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey });
@@ -222,6 +223,11 @@ export default function ProfileScreen({ route, navigation }: any) {
           <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 14, gap: 6 }}>
             <Text style={styles.name}>{profile.full_name}</Text>
             {profile.is_verified && <VerifiedBadge size={20} />}
+            {counts.wins?.length > 0 && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#E5C07B', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12, marginLeft: 6 }}>
+                <Text style={{ color: '#000', fontSize: 10, fontWeight: '900' }}>👑 {counts.wins[0].year}</Text>
+              </View>
+            )}
             <PremiumDiamond tier={profile.subscription_tier || 'free'} />
           </View>
 
@@ -252,7 +258,7 @@ export default function ProfileScreen({ route, navigation }: any) {
         {activeTab === 'posts' && (profileQuery.data?.posts?.length || 0) > 0 && (
           <View style={styles.grid}>
             {profileQuery.data!.posts.map((p: any) => (
-              <TouchableOpacity key={p.id} style={styles.gridCell} onPress={() => navigation.navigate('PostViewerScreen', { postId: p.id })} onLongPress={() => isMe && setDeleteTarget({ type: 'post', id: p.id })}>
+              <TouchableOpacity key={p.id} style={styles.gridCell} onPress={() => navigation.navigate('PostDetail', { id: p.id })} onLongPress={() => isMe && setDeleteTarget({ type: 'post', id: p.id })}>
                 {p.post_media?.length > 0 ? <Image source={{ uri: p.post_media[0].media_url }} style={styles.gridImage} resizeMode="cover" /> : <View style={[styles.gridImage, { backgroundColor: '#1f1f1f', justifyContent: 'center', alignItems: 'center' }]}><Ionicons name="text" size={24} color="#6d7382" /></View>}
               </TouchableOpacity>
             ))}
