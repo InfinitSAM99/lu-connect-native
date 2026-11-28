@@ -9,6 +9,8 @@ import { useAuth } from '../context/AuthContext';
 import { tapLight, tapHeavy } from '../lib/haptics';
 import LULogo from '../components/LULogo';
 
+const RENDER_BASE_URL = 'https://lu-connect-push.onrender.com';
+
 export default function AudioCallScreen({ route, navigation }: any) {
   const { otherUser, isIncoming, callId: initialCallId, conversationId } = route.params || {};
   const { profile: me } = useAuth();
@@ -45,30 +47,41 @@ export default function AudioCallScreen({ route, navigation }: any) {
     if (!callId) return;
     const channel = supabase.channel(`call:${callId}`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'active_calls', filter: `id=eq.${callId}` }, (payload) => {
-        if (payload.new.status === 'accepted') { 
-          setCallStatus('active'); 
-          tapLight(); 
+        if (payload.new.status === 'accepted') {
+          setCallStatus('active');
+          tapLight();
         }
-        else if (payload.new.status === 'declined' || payload.new.status === 'ended') { 
-          handleEndCall(payload.new.status); 
+        else if (payload.new.status === 'declined' || payload.new.status === 'ended') {
+          handleEndCall(payload.new.status);
         }
       }).subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [callId]);
 
-  // 3. When call is active, fetch the LiveKit Token
+  // 3. When call is active, fetch the LiveKit Token from RENDER
   useEffect(() => {
     if (callStatus !== 'active' || !me?.id || !callId) return;
 
     const fetchToken = async () => {
       try {
         const roomName = `call_${callId}`;
-        const { data, error } = await supabase.functions.invoke('livekit-token', {
-          body: { roomName, participantName: me.id }
+
+        const response = await fetch(`${RENDER_BASE_URL}/livekit-token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            roomName,
+            participantName: me.id,
+            participantId: me.id,
+          }),
         });
-        
-        if (error) throw error;
-        
+
+        if (!response.ok) {
+          throw new Error(`Server returned ${response.status}`);
+        }
+
+        const data = await response.json();
+
         if (data?.token) {
           setLivekitToken(data.token);
           setLivekitUrl(data.url || 'wss://your-livekit-server-url');
@@ -83,6 +96,17 @@ export default function AudioCallScreen({ route, navigation }: any) {
     fetchToken();
   }, [callStatus, me, callId]);
 
+
+  // Fallback: if Supabase realtime drops the event, force connection after 5s
+  useEffect(() => {
+    if (callStatus === 'ringing') {
+      const timer = setTimeout(() => {
+        setCallStatus('active');
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [callStatus]);
+
   // 4. Handle end call
   const handleEndCall = async (finalStatus = 'ended') => {
     tapHeavy();
@@ -92,7 +116,13 @@ export default function AudioCallScreen({ route, navigation }: any) {
       const callMsg = finalStatus === 'declined' ? 'Declined Call' : `Audio Call`;
       await supabase.from('messages').insert({ conversation_id: conversationId, sender_id: isIncoming ? otherUser.id : me.id, content: callMsg, attachment_type: 'call' });
     }
-    setTimeout(() => navigation.goBack(), 1000);
+    setTimeout(() => {
+      if (navigation.canGoBack()) {
+        navigation.goBack();
+      } else {
+        navigation.navigate('Feed'); // Fallback to feed if no history
+      }
+    }, 1000);
   };
 
   const avatarUrl = otherUser?.avatar_url || `https://api.dicebear.com/7.x/initials/svg?seed=${otherUser?.full_name || 'User'}`;
@@ -109,9 +139,9 @@ export default function AudioCallScreen({ route, navigation }: any) {
         audio={true}
         video={false}
       >
-        <ActiveCallView 
-          otherUser={otherUser} 
-          onEndCall={() => handleEndCall('ended')} 
+        <ActiveCallView
+          otherUser={otherUser}
+          onEndCall={() => handleEndCall('ended')}
           avatarUrl={avatarUrl}
           pulseScale={pulseScale}
           pulseOpacity={pulseOpacity}
@@ -125,7 +155,7 @@ export default function AudioCallScreen({ route, navigation }: any) {
     <View style={[styles.container, { paddingTop: insets.top + 40, paddingBottom: insets.bottom + 40 }]}>
       <LinearGradient colors={['rgba(239,68,68,0.15)', '#000000', '#000000']} style={StyleSheet.absoluteFillObject} />
       <View style={styles.topBranding}><LULogo size={36} animate={false} /><Text style={styles.brandTitle}>LU CALL</Text></View>
-      
+
       <View style={styles.header}>
         <View style={{ width: 160, height: 160, justifyContent: 'center', alignItems: 'center' }}>
           <Animated.View style={[styles.pulseRing, { transform: [{ scale: pulseScale }], opacity: pulseOpacity }]} />
