@@ -5,19 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const WEBSITE_DOWNLOAD_URL = "https://lu-connect-website-sigma.vercel.app/download";
 
-interface ForceUpdateScreenProps {
-  apkUrl?: string;
-  version?: string;
-  isForced?: boolean;
-  onDismiss?: () => void;
-}
-
-export default function ForceUpdateScreen({
-  apkUrl,
-  version,
-  isForced = true,
-  onDismiss,
-}: ForceUpdateScreenProps) {
+export default function ForceUpdateScreen({ apkUrl, version, isForced = false, onDismiss }: any) {
   const insets = useSafeAreaInsets();
   const targetUrl = apkUrl && apkUrl.trim() ? apkUrl.trim() : WEBSITE_DOWNLOAD_URL;
 
@@ -27,7 +15,7 @@ export default function ForceUpdateScreen({
       if (supported) {
         await Linking.openURL(targetUrl);
       } else {
-        Alert.alert('Error', 'Cannot open the download page. Please visit lu-connect-website-sigma.vercel.app manually.');
+        Alert.alert('Error', 'Cannot open the download page.');
       }
     } catch (error) {
       Alert.alert('Error', 'Something went wrong opening the link.');

@@ -57,13 +57,14 @@ function RightDrawer({ open, onClose, children }: any) {
 }
 
 async function loadProfileData(profileId: string) {
-  const [profileRes, postsRes, reelsRes, connectionsRes, followersRes, followingRes, totalLikesRes] = await Promise.all([
+  const [profileRes, postsRes, reelsRes, connectionsRes, followersRes, followingRes, likesRes, winsRes] = await Promise.all([
     supabase.from('profiles').select('*, roles(name)').eq('id', profileId).single(),
     supabase.from('posts').select('*, post_media(*)').eq('author_id', profileId).eq('is_deleted', false).eq('is_anonymous', false).order('created_at', { ascending: false }).limit(20),
     supabase.from('reels').select('*').eq('user_id', profileId).order('created_at', { ascending: false }).limit(20),
     supabase.from('connections').select('*', { count: 'exact', head: true }).or(`and(requester_id.eq.${profileId},status.eq.accepted),and(receiver_id.eq.${profileId},status.eq.accepted)`),
     supabase.from('follows').select('*', { count: 'exact', head: true }).eq('following_id', profileId),
     supabase.from('follows').select('*', { count: 'exact', head: true }).eq('follower_id', profileId),
+    supabase.from('leaderboard_view').select('likes').eq('id', profileId).maybeSingle(),
     supabase.from('hall_of_fame_winners').select('year').eq('user_id', profileId).order('year', { ascending: false })
   ]);
 
@@ -76,8 +77,8 @@ async function loadProfileData(profileId: string) {
       connections: connectionsRes.count || 0,
       realFollowers: followersRes.count || 0,
       following: followingRes.count || 0,
-      totalLikes: totalLikesRes.data?.likes || 0,
-      wins: totalLikesRes.data || [],
+      totalLikes: likesRes.data?.likes || 0,
+      wins: winsRes.data || [],
     },
   };
 }

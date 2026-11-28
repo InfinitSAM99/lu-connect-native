@@ -16,6 +16,7 @@ import { FlashList } from '@shopify/flash-list';
 import LULogo from '../components/LULogo';
 import FastButton from '../components/FastButton';
 import TopNav from '../components/TopNav';
+import UpdatePill from '../components/UpdatePill';
 
 const PAGE_SIZE = 20; // Increased from 15
 
@@ -403,8 +404,8 @@ export default function FeedScreen({ navigation, route }: any) {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000', position: 'relative' }}>
-      <View style={[styles.stickyHeader, { paddingTop: Math.max(insets.top, 12), borderBottomWidth: 0, marginBottom: 0 }]}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+      <View style={[styles.stickyHeader, { paddingTop: Math.max(insets.top, 12), borderBottomWidth: 0, marginBottom: 0, display: route?.params?.updateInfo?.visible ? 'none' : 'flex' }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, }}>
           <LULogo size={36} animate={false} />
           <Text style={styles.brandText}>LU CONNECT</Text>
         </View>
@@ -423,7 +424,12 @@ export default function FeedScreen({ navigation, route }: any) {
         </View>
       </View>
 
-      {navType === 'top' && <TopNav activeRoute="Feed" />}
+      {navType === 'top' && <View style={{ paddingTop: route?.params?.updateInfo?.visible ? insets.top : 0 }}><TopNav activeRoute="Feed" /></View>}
+      {/* Floating Update Pill */}
+      {route?.params?.updateInfo?.visible && (
+        <UpdatePill version={route.params.updateInfo.version} url={route.params.updateInfo.url} />
+      )}
+
 
       <View style={{ backgroundColor: '#000' }}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 10, gap: 8 }}>

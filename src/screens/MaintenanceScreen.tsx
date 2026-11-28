@@ -59,10 +59,7 @@ export default function MaintenanceScreen({ message, onRetry }: any) {
           <View style={styles.progressFill} />
         </View>
 
-        <TouchableOpacity onPress={onRetry} style={styles.btn}>
-          <Ionicons name="refresh" size={18} color="#fff" />
-          <Text style={styles.btnText}>Try Again</Text>
-        </TouchableOpacity>
+        {/* Try Again button removed - Lock is absolute */}
 
         <TouchableOpacity onPress={() => Linking.openURL('mailto:samuelmugasia1@gmail.com?subject=LU%20Connect%20Support%20Request')} style={styles.supportBtn}>
           <Text style={styles.supportText}>Contact Support</Text>
@@ -82,7 +79,7 @@ const styles = StyleSheet.create({
   title: { color: '#fff', fontSize: 28, fontWeight: '800', marginTop: 12, textAlign: 'center' },
   subtitle: { color: '#6d7382', fontSize: 15, textAlign: 'center', lineHeight: 22, marginTop: 12, marginBottom: 32 },
   progressBar: { width: '100%', height: 4, backgroundColor: '#1f1f1f', borderRadius: 2, overflow: 'hidden', marginBottom: 32 },
-  progressFill: { width: '60%', height: '100%', backgroundColor: '#ef4444', borderRadius: 2 },
+  progressFill: { width: '100%', height: '100%', backgroundColor: '#ef4444', borderRadius: 2 },
   btn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#ef4444', borderRadius: 14, paddingVertical: 16, paddingHorizontal: 32, width: '100%', justifyContent: 'center' },
   btnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
   supportBtn: { marginTop: 16, padding: 12 },

@@ -3,6 +3,8 @@ import React, { useState, useEffect } from 'react';
 import * as Application from 'expo-application';
 import { supabase } from '../lib/supabase';
 import MaintenanceScreen from '../screens/MaintenanceScreen';
+import ForceUpdateScreen from '../screens/ForceUpdateScreen';
+import UpdateBanner from '../components/UpdateBanner';
 import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity, Linking } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -110,6 +112,20 @@ import AdminPlaceholderScreen from '../screens/AdminPlaceholderScreen';
 
 import ThemeCustomizerScreen from '../screens/ThemeCustomizerScreen';
 
+
+function isVersionNewer(latest: string, current: string): boolean {
+  if (!latest || !current) return false;
+  const l = latest.split('.').map(Number);
+  const c = current.split('.').map(Number);
+  for (let i = 0; i < Math.max(l.length, c.length); i++) {
+    const lNum = l[i] || 0;
+    const cNum = c[i] || 0;
+    if (lNum > cNum) return true;
+    if (lNum < cNum) return false;
+  }
+  return false;
+}
+
 const Stack = createNativeStackNavigator();
 
 const withLayout = (Component) => (props) => (
@@ -131,6 +147,10 @@ export default function AppNavigator() {
 
   useEffect(() => {
     const checkVersion = async () => {
+      if (__DEV__) {
+        console.log('Skipping update check in development mode');
+        return;
+      }
       try {
         const { data } = await supabase.from('app_settings').select('*').eq('id', 1).single();
         
@@ -145,7 +165,7 @@ export default function AppNavigator() {
           
           const targetUrl = (data.apk_url && String(data.apk_url).trim()) || 'https://lu-connect-website-sigma.vercel.app/download';
           const latestVer = typeof data.latest_version === 'string' ? data.latest_version.trim() : '';
-          const hasNewerVersion = latestVer !== '' && latestVer !== currentVersion.trim();
+          const hasNewerVersion = isVersionNewer(latestVer, currentVersion.trim());
 
           if (data.force_update === true) {
             console.log('FORCE UPDATE TRIGGERED!');
@@ -161,6 +181,44 @@ export default function AppNavigator() {
       }
     };
     checkVersion();
+
+    // 🔥 REAL-TIME LISTENER: Instantly update if SQL changes
+    if (!__DEV__) {
+    const channel = supabase.channel('app-settings-changes')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'app_settings', filter: 'id=eq.1' },
+        (payload) => {
+          console.log('Settings updated in real-time!', payload.new);
+          const data = payload.new;
+          const currentVersion = Application.nativeApplicationVersion || '1.0.0';
+          const latestVer = (data.latest_version || '').trim();
+          const hasNewer = isVersionNewer(latestVer, currentVersion);
+          const targetUrl = data.apk_url || 'https://lu-connect-website-sigma.vercel.app/download';
+
+          if (data.maintenance === true) {
+            setIsMaintenance(true);
+            setMaintenanceMsg(data.maintenance_message || 'LU Connect is under maintenance.');
+            return;
+          }
+
+          if (data.force_update === true && hasNewer) {
+            setForceUpdateRequired(true);
+            setOptionalBanner({ visible: false, version: latestVer, url: targetUrl });
+          } else if (hasNewer) {
+            setForceUpdateRequired(false);
+            setOptionalBanner({ visible: true, version: latestVer, url: targetUrl });
+          } else {
+            console.log('Real-time: App is up to date');
+            setForceUpdateRequired(false);
+            setOptionalBanner({ visible: false, version: '', url: targetUrl });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+    }
   }, []);
 
   // Safety timeout: If loading takes more than 2.5 seconds, force it to open
@@ -191,11 +249,27 @@ export default function AppNavigator() {
 
   // MAINTENANCE CHECK
   if (isMaintenance) {
-    return <MaintenanceScreen message={maintenanceMsg} onRetry={() => setIsMaintenance(false)} />;
+    return <MaintenanceScreen message={maintenanceMsg} />;
   }
   // 3. Main Navigation
+
+  
+  
   return (
-    <NavigationContainer ref={navigationRef}>
+    <View style={{ flex: 1 }}>
+      
+      {forceUpdateRequired && (
+        <View style={StyleSheet.absoluteFill}>
+          <ForceUpdateScreen 
+            isForced={false} 
+            version={optionalBanner.version} 
+            apkUrl={optionalBanner.url} 
+            onDismiss={() => setForceUpdateRequired(false)} 
+          />
+        </View>
+      )}
+
+      <NavigationContainer ref={navigationRef}>
       <DeepLinkListener />
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {!user ? (
@@ -229,7 +303,11 @@ export default function AppNavigator() {
           // --- LOGGED IN & APPROVED ---
           <>
             {/* Student Core */}
-            <Stack.Screen name="Feed" component={withLayout(FeedScreen)} />
+            <Stack.Screen 
+              name="Feed" 
+              component={withLayout(FeedScreen)} 
+              initialParams={{ updateInfo: optionalBanner }} 
+            />
             <Stack.Screen name="Search" component={withLayout(SearchScreen)} />
             <Stack.Screen name="Messages" component={withLayout(MessagesScreen)} />
             <Stack.Screen name="Notifications" component={withLayout(NotificationsScreen)} />
@@ -326,6 +404,7 @@ export default function AppNavigator() {
         )}
       </Stack.Navigator>
     </NavigationContainer>
+    </View>
   );
 }
 
