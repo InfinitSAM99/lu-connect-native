@@ -30,6 +30,15 @@
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "INTERNET",
+        "POST_NOTIFICATIONS",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE",
+        "WAKE_LOCK",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ],
       "versionCode": 2
@@ -82,7 +91,7 @@
       "policy": "appVersion"
     },
     "updates": {
-      "url": "https://u.expo.dev/0c999e89-770d-4e66-b002-bf398b0a3b87"
+      "url": "https://u.expo.dev/e2d3d3d4-3e55-4b5b-8dec-5aac16439cbf"
     },
     "owner": "finite-company"
   }
